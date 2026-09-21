@@ -20,8 +20,10 @@ export class SceneManager {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.1;
+    // NoToneMapping = video renders exactly as encoded, no cinematic processing.
+    // ACES/Filmic tone mapping is designed for synthetic 3D scenes and over-exposes
+    // real-world 360° video footage, blowing out highlights.
+    this.renderer.toneMapping = THREE.NoToneMapping;
 
     this.container.appendChild(this.renderer.domElement);
 

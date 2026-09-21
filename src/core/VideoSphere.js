@@ -37,10 +37,47 @@ export class VideoSphere {
     this.canvasTexture.minFilter = THREE.LinearFilter;
     this.canvasTexture.magFilter = THREE.LinearFilter;
 
-    // Sphere Material
-    this.material = new THREE.MeshBasicMaterial({
-      map: this.canvasTexture,
-      toneMapped: false // Preserves exact 1:1 camera colors without washing out or lifting blacks
+    // Custom shader material for precise colour grading without tone mapping.
+    // Contrast and saturation are applied in the fragment shader.
+    this.material = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: this.canvasTexture },
+        contrast:   { value: 1.05 },  // 1.0 = neutral, > 1.0 = more contrast
+        saturation: { value: 1.10 },  // 1.0 = neutral, > 1.0 = more vivid
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform float contrast;
+        uniform float saturation;
+        varying vec2 vUv;
+
+        vec3 applySaturation(vec3 color, float sat) {
+          // Luminance weights (ITU-R BT.709)
+          float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+          return mix(vec3(luma), color, sat);
+        }
+
+        vec3 applyContrast(vec3 color, float con) {
+          // Pivot at 0.5 midpoint
+          return (color - 0.5) * con + 0.5;
+        }
+
+        void main() {
+          vec4 tex = texture2D(map, vUv);
+          vec3 color = tex.rgb;
+          color = applyContrast(color, contrast);
+          color = applySaturation(color, saturation);
+          gl_FragColor = vec4(clamp(color, 0.0, 1.0), tex.a);
+        }
+      `,
+      side: THREE.FrontSide,
     });
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
@@ -93,12 +130,16 @@ export class VideoSphere {
     this.video.load();
 
     this.videoTexture = new THREE.VideoTexture(this.video);
+    // SRGBColorSpace tells Three.js the video is already in sRGB gamma.
+    // With NoToneMapping on the renderer, this creates a clean round-trip:
+    // sRGB (texture) → linear (internal) → sRGB (screen output) = net zero transform.
+    // This matches how Premiere and browser <video> elements display the footage.
+    this.videoTexture.colorSpace = THREE.SRGBColorSpace;
     this.videoTexture.minFilter = THREE.LinearFilter;
     this.videoTexture.magFilter = THREE.LinearFilter;
     this.videoTexture.generateMipmaps = false;
 
-    this.material.map = this.videoTexture;
-    this.material.toneMapped = false;
+    this.material.uniforms.map.value = this.videoTexture;
     this.material.needsUpdate = true;
     this.isUsingRealVideo = true;
 

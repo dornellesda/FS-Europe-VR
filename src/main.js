@@ -113,28 +113,32 @@ class WebXRExhibitApp {
       this.adminHub.open();
     });
 
+    // Shared auth-gated function used by ALL entry points to the Admin Hub
+    this._openAdminGated = async () => {
+      if (supabase) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          this.adminHub.open();
+          return;
+        }
+      }
+      // No session or Supabase not configured — show login modal
+      this.authModal.open();
+    };
+
     this.tourCatalog = new TourCatalogModal(
       (selectedTour) => {
         this.switchTour(selectedTour);
       },
       () => {
-        this.adminHub.open();
+        this._openAdminGated();
       }
     );
 
     // 9. Initialize Video HUD
     this.videoHUD = new VideoHUD(this.videoSphere, activeTour, {
       onOpenCatalog: () => this.tourCatalog.open(),
-      onOpenAdmin: async () => {
-        if (supabase) {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            this.adminHub.open();
-            return;
-          }
-        }
-        this.authModal.open();
-      },
+      onOpenAdmin: () => this._openAdminGated(),
       onToggleCalib: () => this.calibrationOverlay.toggle()
     });
 
