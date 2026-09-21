@@ -1,4 +1,5 @@
 import { tourStore } from '../config/tourStore.js';
+import { supabase } from '../config/supabaseClient.js';
 
 export class AdminHub {
   constructor(inputManager, videoSphere, onTourChanged) {
@@ -40,6 +41,9 @@ export class AdminHub {
               <span>📤 Import JSON</span>
               <input type="file" id="input-admin-import-file" accept=".json,application/json" style="display:none;" />
             </label>
+            <button class="btn-glass" id="btn-admin-signout" title="Sign Out of Creator Studio">
+              <span>🚪 Sign Out</span>
+            </button>
             <button class="modal-close-btn" id="btn-admin-close" title="Close Studio (Esc)">✕</button>
           </div>
         </div>
@@ -66,6 +70,13 @@ export class AdminHub {
     document.getElementById('btn-admin-close')?.addEventListener('click', () => this.close());
     document.getElementById('btn-admin-export')?.addEventListener('click', () => this.handleExport());
     document.getElementById('input-admin-import-file')?.addEventListener('change', (e) => this.handleImport(e));
+    document.getElementById('btn-admin-signout')?.addEventListener('click', async () => {
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+      this.close();
+      alert("You have successfully signed out.");
+    });
 
     // Tab Switchers
     this.container.querySelectorAll('.admin-tab-btn').forEach((btn) => {

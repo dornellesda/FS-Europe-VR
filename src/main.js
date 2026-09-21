@@ -1,4 +1,5 @@
 import { tourStore } from './config/tourStore.js';
+import { supabase } from './config/supabaseClient.js';
 import { SceneManager } from './core/SceneManager.js';
 import { VideoSphere } from './core/VideoSphere.js';
 import { XRControllerManager } from './core/XRControllerManager.js';
@@ -124,17 +125,33 @@ class WebXRExhibitApp {
     // 9. Initialize Video HUD
     this.videoHUD = new VideoHUD(this.videoSphere, activeTour, {
       onOpenCatalog: () => this.tourCatalog.open(),
-      onOpenAdmin: () => this.authModal.open(),
+      onOpenAdmin: async () => {
+        if (supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            this.adminHub.open();
+            return;
+          }
+        }
+        this.authModal.open();
+      },
       onToggleCalib: () => this.calibrationOverlay.toggle()
     });
 
     // Keyboard shortcut for Admin Hub: 'KeyA'
-    window.addEventListener('keydown', (e) => {
+    window.addEventListener('keydown', async (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code === 'KeyA') {
         if (this.adminHub.container.classList.contains('open')) {
           this.adminHub.close();
         } else {
+          if (supabase) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+              this.adminHub.open();
+              return;
+            }
+          }
           this.authModal.open();
         }
       }
@@ -157,7 +174,16 @@ class WebXRExhibitApp {
     // 11. Check for admin URL parameter
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('admin') || window.location.pathname.includes('/admin')) {
-      setTimeout(() => this.authModal.open(), 500);
+      setTimeout(async () => {
+        if (supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            this.adminHub.open();
+            return;
+          }
+        }
+        this.authModal.open();
+      }, 500);
     }
 
     // Subscribe to store updates (e.g. when DB finishes loading)

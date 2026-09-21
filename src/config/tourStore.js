@@ -9,7 +9,7 @@ export const initialCatalog = [
     category: "Science & History",
     thumbnail: "https://images.unsplash.com/photo-1564399580075-5dfe19c206f1?auto=format&fit=crop&w=600&q=80",
     description: "Follow the chief curator through the grand hall. Discover operational astrolabe replicas, superconducting quantum levitation, and rich scholarly archives.",
-    videoSrc: "", // Uses simulated gallery if blank or user's custom Insta360 MP4
+    videoSrc: "https://vr.familysearch.fun/Glasgow-v1_web.mp4",
     duration: 120,
     hotspots: [
       ...defaultTourData.hotspots,

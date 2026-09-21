@@ -93,7 +93,6 @@ export class VideoSphere {
     this.video.load();
 
     this.videoTexture = new THREE.VideoTexture(this.video);
-    this.videoTexture.colorSpace = THREE.SRGBColorSpace;
     this.videoTexture.minFilter = THREE.LinearFilter;
     this.videoTexture.magFilter = THREE.LinearFilter;
     this.videoTexture.generateMipmaps = false;
