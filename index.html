@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>FamilySearch Europe VR</title>
+    <meta
+      name="description"
+      content="Immersive WebXR 360-degree guided exhibit tour. Watch the guide in 360 VR, touch and interact with 3D exhibits, and scan interactive QR codes."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <!-- Three.js WebGL / WebXR Viewport -->
+    <div id="canvas-container"></div>
+
+    <!-- Floating HUD UI Overlay -->
+    <div id="video-hud"></div>
+
+    <!-- Calibration / Authoring Tool HUD -->
+    <div id="calibration-hud"></div>
+
+    <!-- 2D Desktop Exhibit Modal Overlay -->
+    <div id="exhibit-modal-overlay" class="modal-overlay"></div>
+
+    <!-- 2D Desktop QR Modal Overlay -->
+    <div id="qr-modal-overlay" class="modal-overlay"></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
