@@ -144,14 +144,14 @@ body.in-vr-session #qr-modal-overlay {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent-cyan);
-  box-shadow: 0 0 12px var(--accent-cyan);
+  background: #87b940;
+  box-shadow: 0 0 12px #87b940;
   animation: pulse-glow 2.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes pulse-glow {
   0%, 100% { transform: scale(0.95); opacity: 0.7; }
-  50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 16px var(--accent-cyan); }
+  50% { transform: scale(1.15); opacity: 1; box-shadow: 0 0 16px #87b940; }
 }
 
 .hud-title {
