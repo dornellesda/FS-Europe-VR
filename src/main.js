@@ -174,6 +174,8 @@ class WebXRExhibitApp {
 
     // 10. Load Initial Tour Media
     this.applyTourMedia(activeTour);
+    // Orient initial camera to the active tour's start POV (defaults stay if not set)
+    this.applyStartPOV(activeTour);
 
     // 11. Check for admin URL parameter
     const urlParams = new URLSearchParams(window.location.search);
@@ -193,6 +195,21 @@ class WebXRExhibitApp {
     // Subscribe to store updates (e.g. when DB finishes loading)
     tourStore.subscribe((tours, activeTour) => {
       this.switchTour(activeTour);
+    });
+
+    // Rotate the 3D world on VR entry so the headset user starts facing
+    // the tour's authored startPOV (yaw); restore on session end.
+    window.addEventListener('exhibit-session-start', () => {
+      const tour = tourStore.getActiveTour();
+      const yaw = tour?.startPOV?.yaw;
+      if (typeof yaw === 'number') {
+        this.videoSphere.setPanoRotationY(yaw);
+        this.hotspotManager.applyWorldRotationY(yaw);
+      }
+    });
+    window.addEventListener('exhibit-session-end', () => {
+      this.videoSphere.setPanoRotationY(0);
+      this.hotspotManager.applyWorldRotationY(0);
     });
 
     console.log('FamilySearch Europe VR Initialized Successfully');
@@ -217,6 +234,28 @@ class WebXRExhibitApp {
 
     // 3. Load 360 Video Source
     this.applyTourMedia(tour);
+
+    // 4. Orient initial camera toward the tour's configured start POV
+    this.applyStartPOV(tour);
+
+    // 4b. In an active VR session, rotate the world so the new tour also
+    // starts facing its authored startPOV (headset users don't use lon/lat).
+    if (this.sceneManager.isInVR) {
+      const yaw = tour?.startPOV?.yaw;
+      if (typeof yaw === 'number') {
+        this.videoSphere.setPanoRotationY(yaw);
+        this.hotspotManager.applyWorldRotationY(yaw);
+      } else {
+        this.videoSphere.setPanoRotationY(0);
+        this.hotspotManager.applyWorldRotationY(0);
+      }
+    }
+  }
+
+  applyStartPOV(tour) {
+    if (tour?.startPOV && this.inputManager) {
+      this.inputManager.setStartPOV(tour.startPOV.yaw || 0, tour.startPOV.pitch || 0);
+    }
   }
 
   applyTourMedia(tour) {

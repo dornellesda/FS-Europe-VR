@@ -29,6 +29,11 @@ export class VideoHUD {
       titleEl.textContent = tour.title;
     }
 
+    const tagEl = document.getElementById('hud-tag');
+    if (tagEl) {
+      tagEl.textContent = tour.category || '360 Experience';
+    }
+
     const duration = tour.duration || 120;
     const minutes = Math.floor(duration / 60);
     const seconds = Math.floor(duration % 60);
@@ -49,7 +54,7 @@ export class VideoHUD {
         <div class="hud-brand" id="btn-brand-menu" title="Click to browse tours">
           <div class="pulse-dot"></div>
           <span class="hud-title" id="hud-active-tour-title">${this.activeTour?.title || 'FamilySearch Europe VR'}</span>
-          <span class="hud-tag">${this.activeTour?.category || '360 Experience'}</span>
+          <span class="hud-tag" id="hud-tag">${this.activeTour?.category || '360 Experience'}</span>
         </div>
 
         <div class="hud-top-actions">

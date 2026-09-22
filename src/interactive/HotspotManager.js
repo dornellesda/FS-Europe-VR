@@ -43,46 +43,41 @@ export class HotspotManager {
     switch (type) {
       case 'interactive-exhibit':
         return {
-          icon: '✦',
+          iconType: 'exhibit',
           badgeText: '3D ARTIFACT',
           actionText: 'Tap to Inspect Replica',
           accent: '#87b940',
-          accentRgb: '56, 189, 248',
-          tintTop: 'rgba(2, 132, 199, 0.25)',
-          tintBottom: 'rgba(15, 23, 42, 0.90)'
+          accentRgb: '135, 185, 64'
         };
       case 'video-popup':
         return {
-          icon: '▶',
+          iconType: 'video',
           badgeText: 'CURATOR SPOTLIGHT',
           actionText: 'Tap to Watch Video',
           accent: '#fbbf24',
-          accentRgb: '251, 191, 36',
-          tintTop: 'rgba(217, 119, 6, 0.25)',
-          tintBottom: 'rgba(15, 23, 42, 0.90)'
+          accentRgb: '251, 191, 36'
         };
       case 'qr-code':
       default:
         return {
-          icon: '⛶',
+          iconType: 'qr',
           badgeText: 'DIGITAL CATALOG',
           actionText: 'Tap to Open Web Link & QR',
           accent: '#34d399',
-          accentRgb: '52, 211, 153',
-          tintTop: 'rgba(5, 150, 105, 0.25)',
-          tintBottom: 'rgba(15, 23, 42, 0.90)'
+          accentRgb: '52, 211, 153'
         };
     }
   }
 
   /**
-   * Generates an Apple visionOS-inspired spatial glass canvas texture:
-   * - Sleek circular glass orb at the top with specular reflection
-   * - Organic frosted glass pill card below with subtle edge light
-   * - Crystal clear SF/Inter typography
+   * Flat, premium hotspot marker inspired by the rest of the interface:
+   * a slim tonal icon ring with a flat stroke glyph, plus a soft label pill
+   * (matching HUD badge styling) and a minimal title panel on hover.
    */
   createVisionGlassTexture(data) {
     const theme = this.getTypeTheme(data.type);
+    const accent = theme.accent;
+    const rgb = theme.accentRgb;
     const canvas = document.createElement('canvas');
     canvas.width = 1024;
     canvas.height = 640;
@@ -92,158 +87,130 @@ export class HotspotManager {
     ctx.imageSmoothingQuality = 'high';
 
     // -------------------------------------------------------------
-    // 1. TOP SPATIAL GLASS ORB (Center x: 512, y: 120, r: 76)
+    // 1. FLAT ICON CHIP (lens ring + tonal disc + flat glyph)
     // -------------------------------------------------------------
-    const orbX = 512;
-    const orbY = 120;
-    const orbRadius = 76;
+    const cx = 512;
+    const cy = 116;
+    const R = 62;
 
-    // Ambient Soft Halo (Glow in the air)
-    const halo = ctx.createRadialGradient(orbX, orbY, orbRadius * 0.4, orbX, orbY, orbRadius * 1.6);
-    halo.addColorStop(0, `rgba(${theme.accentRgb}, 0.45)`);
-    halo.addColorStop(0.5, `rgba(${theme.accentRgb}, 0.15)`);
-    halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = halo;
+    // Soft distant halo ring
+    ctx.strokeStyle = `rgba(${rgb}, 0.18)`;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(orbX, orbY, orbRadius * 1.6, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Dark Frosted Glass Core of the Orb
-    const orbGrad = ctx.createRadialGradient(orbX - 20, orbY - 26, 10, orbX, orbY, orbRadius);
-    orbGrad.addColorStop(0, 'rgba(255, 255, 255, 0.25)');
-    orbGrad.addColorStop(0.3, `rgba(${theme.accentRgb}, 0.85)`);
-    orbGrad.addColorStop(0.9, 'rgba(15, 23, 42, 0.92)');
-    orbGrad.addColorStop(1, 'rgba(10, 15, 30, 0.98)');
-    ctx.fillStyle = orbGrad;
-    ctx.beginPath();
-    ctx.arc(orbX, orbY, orbRadius, 0, Math.PI * 2);
-    ctx.fill();
-
-    // visionOS Specular Rim Light on Orb
-    const rimGrad = ctx.createLinearGradient(orbX, orbY - orbRadius, orbX, orbY + orbRadius);
-    rimGrad.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-    rimGrad.addColorStop(0.35, `rgba(${theme.accentRgb}, 0.9)`);
-    rimGrad.addColorStop(0.8, 'rgba(255, 255, 255, 0.15)');
-    rimGrad.addColorStop(1, 'rgba(0, 0, 0, 0.5)');
-    ctx.strokeStyle = rimGrad;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(orbX, orbY, orbRadius, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R + 20, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Inner Glyph Symbol
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 64px "Inter", -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
-    ctx.shadowBlur = 8;
-    ctx.fillText(theme.icon, orbX, orbY + 2);
-    ctx.shadowBlur = 0;
+    // Flat tonal disc
+    const disc = ctx.createRadialGradient(cx - 16, cy - 18, 4, cx, cy, R);
+    disc.addColorStop(0, `rgba(${rgb}, 0.30)`);
+    disc.addColorStop(1, `rgba(${rgb}, 0.07)`);
+    ctx.fillStyle = disc;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Stem indicator linking Orb to Pill
-    ctx.strokeStyle = `rgba(${theme.accentRgb}, 0.5)`;
+    // Crisp primary ring
+    ctx.strokeStyle = `rgba(${rgb}, 0.85)`;
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(orbX, orbY + orbRadius);
-    ctx.lineTo(orbX, 236);
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Slim inner accent ring
+    ctx.strokeStyle = `rgba(${rgb}, 0.35)`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R - 9, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Flat stroke glyph
+    ctx.strokeStyle = accent;
+    ctx.fillStyle = accent;
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    this.drawFlatIcon(ctx, theme.iconType, cx, cy);
+
+    // -------------------------------------------------------------
+    // 2. STEM LINKING CHIP TO PILL
+    // -------------------------------------------------------------
+    ctx.strokeStyle = `rgba(${rgb}, 0.4)`;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + R);
+    ctx.lineTo(cx, 244);
     ctx.stroke();
 
     // -------------------------------------------------------------
-    // 2. SPATIAL FROSTED GLASS CAPSULE (x: 52, y: 236, w: 920, h: 360, r: 38)
+    // 3. FLAT LABEL PILL (HUD badge style)
     // -------------------------------------------------------------
-    const cardX = 52;
-    const cardY = 236;
-    const cardW = 920;
-    const cardH = 360;
-    const cardR = 38;
+    const pillY = 252;
+    const pillH = 52;
+    ctx.font = '700 26px Inter, sans-serif';
+    const textW = ctx.measureText(theme.badgeText).width;
+    const pillW = textW + 54;
+    const pillX = cx - pillW / 2;
 
-    // Ambient Depth Shadow
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.55)';
-    ctx.shadowBlur = 40;
-    ctx.shadowOffsetY = 18;
-
-    // Dark Translucent Frosted Glass Base
-    const glassGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-    glassGrad.addColorStop(0, theme.tintTop);
-    glassGrad.addColorStop(0.2, 'rgba(20, 26, 42, 0.88)');
-    glassGrad.addColorStop(1, theme.tintBottom);
-    ctx.fillStyle = glassGrad;
-    this.drawRoundedRect(ctx, cardX, cardY, cardW, cardH, cardR);
+    ctx.fillStyle = `rgba(${rgb}, 0.12)`;
+    this.drawRoundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
     ctx.fill();
-    ctx.restore();
-
-    // visionOS Specular Bevel Border (Subtle light catch on top edge)
-    const bevelGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-    bevelGrad.addColorStop(0, 'rgba(255, 255, 255, 0.42)'); // Top specular rim
-    bevelGrad.addColorStop(0.15, `rgba(${theme.accentRgb}, 0.45)`);
-    bevelGrad.addColorStop(0.85, 'rgba(255, 255, 255, 0.08)');
-    bevelGrad.addColorStop(1, 'rgba(0, 0, 0, 0.4)'); // Bottom dark rim
-    ctx.strokeStyle = bevelGrad;
-    ctx.lineWidth = 3.5;
-    this.drawRoundedRect(ctx, cardX, cardY, cardW, cardH, cardR);
-    ctx.stroke();
-
-    // Micro Category Badge Pill
-    const badgeX = cardX + 44;
-    const badgeY = cardY + 38;
-    const badgeH = 44;
-    ctx.font = '600 22px "Inter", -apple-system, sans-serif';
-    const badgeTextWidth = ctx.measureText(theme.badgeText).width;
-    const badgeW = badgeTextWidth + 34;
-
-    ctx.fillStyle = `rgba(${theme.accentRgb}, 0.16)`;
-    this.drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 22);
-    ctx.fill();
-    ctx.strokeStyle = `rgba(${theme.accentRgb}, 0.4)`;
+    ctx.strokeStyle = `rgba(${rgb}, 0.4)`;
     ctx.lineWidth = 2;
-    this.drawRoundedRect(ctx, badgeX, badgeY, badgeW, badgeH, 22);
+    this.drawRoundedRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
     ctx.stroke();
 
-    ctx.fillStyle = theme.accent;
+    // Cue dot (like the HUD active-cue-pill)
+    ctx.fillStyle = accent;
+    ctx.beginPath();
+    ctx.arc(pillX + 24, pillY + pillH / 2, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Spaced uppercase label
+    ctx.fillStyle = accent;
+    ctx.font = '700 26px Inter, sans-serif';
+    this.drawSpacedText(ctx, theme.badgeText, pillX + 40, pillY + pillH / 2, 3);
+
+    // -------------------------------------------------------------
+    // 4. FLAT TITLE PANEL (revealed on hover)
+    // -------------------------------------------------------------
+    const cardX = 82;
+    const cardY = 328;
+    const cardW = 860;
+    const cardH = 212;
+    const cardR = 24;
+
+    ctx.fillStyle = 'rgba(13, 20, 38, 0.62)';
+    this.drawRoundedRect(ctx, cardX, cardY, cardW, cardH, cardR);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 2;
+    this.drawRoundedRect(ctx, cardX, cardY, cardW, cardH, cardR);
+    ctx.stroke();
+
+    // Accent hairline (mirrors the video popup card top hairline)
+    ctx.strokeStyle = `rgba(${rgb}, 0.7)`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(cardX + 34, cardY + 2);
+    ctx.lineTo(cardX + 176, cardY + 2);
+    ctx.stroke();
+
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = '600 33px Inter, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
-    ctx.fillText(theme.badgeText, badgeX + 17, badgeY + badgeH / 2);
+    const title = data.title.length > 28 ? data.title.substring(0, 26) + '...' : data.title;
+    ctx.fillText(title, cardX + 34, cardY + 62);
 
-    // Headline Title
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = '700 42px "Inter", -apple-system, sans-serif';
-    ctx.textBaseline = 'top';
-    const displayTitle = data.title.length > 25 ? data.title.substring(0, 23) + '...' : data.title;
-    ctx.fillText(displayTitle, cardX + 44, cardY + 104);
-
-    // Subtitle Description
     ctx.fillStyle = '#94a3b8';
-    ctx.font = '400 28px "Inter", -apple-system, sans-serif';
-    const displaySub = data.subtitle || 'Look directly or tap to explore';
-    const truncatedSub = displaySub.length > 42 ? displaySub.substring(0, 40) + '...' : displaySub;
-    ctx.fillText(truncatedSub, cardX + 44, cardY + 172);
+    ctx.font = '400 26px Inter, sans-serif';
+    const sub = (data.subtitle || 'Tap to explore').substring(0, 46);
+    ctx.fillText(sub, cardX + 34, cardY + 116);
 
-    // Bottom Action Pill Bar (VisionOS interactive prompt)
-    const barX = cardX + 44;
-    const barY = cardY + 242;
-    const barW = cardW - 88;
-    const barH = 70;
-    const barR = 20;
-
-    const barGrad = ctx.createLinearGradient(barX, barY, barX + barW, barY);
-    barGrad.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
-    barGrad.addColorStop(1, `rgba(${theme.accentRgb}, 0.12)`);
-    ctx.fillStyle = barGrad;
-    this.drawRoundedRect(ctx, barX, barY, barW, barH, barR);
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-    ctx.lineWidth = 2;
-    this.drawRoundedRect(ctx, barX, barY, barW, barH, barR);
-    ctx.stroke();
-
-    ctx.fillStyle = theme.accent;
-    ctx.font = '600 26px "Inter", -apple-system, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`${theme.actionText}  →`, orbX, barY + barH / 2);
+    ctx.fillStyle = accent;
+    ctx.font = '600 21px Inter, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${theme.actionText}  →`, cardX + cardW - 34, cardY + 166);
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
@@ -251,6 +218,53 @@ export class HotspotManager {
     texture.magFilter = THREE.LinearFilter;
     texture.generateMipmaps = false;
     return texture;
+  }
+
+  drawFlatIcon(ctx, type, cx, cy) {
+    if (type === 'exhibit') {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 24);
+      ctx.lineTo(cx + 24, cy);
+      ctx.lineTo(cx, cy + 24);
+      ctx.lineTo(cx - 24, cy);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - 12, cy);
+      ctx.lineTo(cx + 12, cy);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === 'video') {
+      ctx.beginPath();
+      ctx.arc(cx, cy, 26, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - 9, cy - 13);
+      ctx.lineTo(cx - 9, cy + 13);
+      ctx.lineTo(cx + 15, cy);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      const s = 26;
+      this.drawRoundedRect(ctx, cx - s, cy - s, s * 2, s * 2, 8);
+      ctx.stroke();
+      ctx.fillRect(cx - s, cy - s, 9, 9);
+      ctx.fillRect(cx + s - 9, cy - s, 9, 9);
+      ctx.fillRect(cx - s, cy + s - 9, 9, 9);
+    }
+  }
+
+  drawSpacedText(ctx, text, x, y, spacing) {
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    let cursor = x;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      ctx.fillText(ch, cursor, y);
+      cursor += ctx.measureText(ch).width + spacing;
+    }
   }
 
   drawRoundedRect(ctx, x, y, width, height, radius) {
@@ -284,14 +298,14 @@ export class HotspotManager {
       const pos = this.sphericalToCartesian(data.yaw, data.pitch, data.distance || 3.8);
       hotspotGroup.position.copy(pos);
 
-      // Single unified visionOS glass texture plane, split into Orb (always visible) and Card (hover reveal)
+      // Single unified flat chip texture plane, split into Chip and Card (hover reveal)
       const texture = this.createVisionGlassTexture(data);
       const aspect = 1024 / 640;
-      const planeHeight = 1.35;
-      const planeWidth = planeHeight * aspect; // ~2.16m
-      
-      const topRatio = 236 / 640;
-      const bottomRatio = 404 / 640;
+      const planeHeight = 1.1;
+      const planeWidth = planeHeight * aspect; // ~1.76m
+
+      const topRatio = 248 / 640;
+      const bottomRatio = 392 / 640;
       
       const orbPlaneHeight = planeHeight * topRatio;
       const cardPlaneHeight = planeHeight * bottomRatio;
@@ -330,8 +344,8 @@ export class HotspotManager {
       hotspotGroup.add(billboardGroup);
 
       // Hitbox for raycasting (fixed radius, never changes on hover)
-      // Scaled up slightly to match the larger plane height
-      const hitGeom = new THREE.SphereGeometry(1.0, 16, 16);
+      // Scaled to match the compact chip-size marker
+      const hitGeom = new THREE.SphereGeometry(0.55, 16, 16);
       const hitMat = new THREE.MeshBasicMaterial({ visible: false });
       const hitMesh = new THREE.Mesh(hitGeom, hitMat);
       hitMesh.userData.hotspot = hotspotGroup;
@@ -380,6 +394,26 @@ export class HotspotManager {
     const z = -radius * Math.sin(phi) * Math.sin(theta);
 
     return new THREE.Vector3(x, y, z);
+  }
+
+  /**
+   * Rotates all hotspot anchor positions around the vertical (Y) axis.
+   * Used in VR to bring startPOV into the user's initial view.
+   * Billboarding is untouched (groups still track the camera), so the
+   * markers keep facing the user. Passing 0 restores the authored layout.
+   */
+  applyWorldRotationY(yawDeg = 0) {
+    const rad = THREE.MathUtils.degToRad(-yawDeg);
+    const cosA = Math.cos(rad);
+    const sinA = Math.sin(rad);
+    this.hotspots.forEach(({ group, data }) => {
+      const base = this.sphericalToCartesian(data.yaw, data.pitch, data.distance || 3.8);
+      group.position.set(
+        base.x * cosA + base.z * sinA,
+        base.y,
+        -base.x * sinA + base.z * cosA
+      );
+    });
   }
 
   triggerActivation(hotspotGroup) {

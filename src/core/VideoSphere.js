@@ -96,6 +96,10 @@ export class VideoSphere {
     this.loadUrl(objectUrl);
   }
 
+  setPanoRotationY(yawDeg = 0) {
+    this.mesh.rotation.y = THREE.MathUtils.degToRad(-yawDeg);
+  }
+
   loadUrl(url) {
     this.video.src = url;
     this.video.load();

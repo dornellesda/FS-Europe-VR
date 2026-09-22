@@ -168,6 +168,22 @@ export class AdminHub {
               </div>
             </div>
 
+            <div class="form-row">
+              <div class="form-group">
+                <label>Start POV Yaw (deg)</label>
+                <input type="number" id="tour-field-start-yaw" value="${activeTour?.startPOV?.yaw ?? ''}" step="1" placeholder="0 = forward" />
+              </div>
+              <div class="form-group">
+                <label>Start POV Pitch (deg)</label>
+                <input type="number" id="tour-field-start-pitch" value="${activeTour?.startPOV?.pitch ?? ''}" step="1" placeholder="0 = eye level" />
+              </div>
+              <div class="form-group">
+                <label>&nbsp;</label>
+                <button type="button" class="btn-action-sm purple" id="btn-capture-start-pov" title="Use the current view as the tour's starting POV">🎯 Use Current View</button>
+              </div>
+            </div>
+            <span class="field-hint">Defines the starting camera view for desktop/catalog. Yaw 0 = forward, +90 right, -90 left, ±180 behind. Headset users control their own head orientation, so this mainly sets the 2D start view.</span>
+
             <div class="form-group">
               <label>360° Video Source URL (Equirectangular 2:1 MP4)</label>
               <div class="input-with-action">
@@ -246,9 +262,19 @@ export class AdminHub {
       }
     });
 
+    // Capture current view as start POV
+    document.getElementById('btn-capture-start-pov')?.addEventListener('click', () => {
+      const angles = this.inputManager.getCurrentAngles();
+      document.getElementById('tour-field-start-yaw').value = angles.yaw;
+      document.getElementById('tour-field-start-pitch').value = angles.pitch;
+    });
+
     // Save Form
     document.getElementById('form-edit-tour')?.addEventListener('submit', (e) => {
       e.preventDefault();
+      const startYawEl = document.getElementById('tour-field-start-yaw');
+      const startPitchEl = document.getElementById('tour-field-start-pitch');
+      const hasStartPOV = !!(startYawEl?.value !== '' || startPitchEl?.value !== '');
       const updates = {
         title: document.getElementById('tour-field-title').value,
         subtitle: document.getElementById('tour-field-subtitle').value,
@@ -256,7 +282,10 @@ export class AdminHub {
         duration: Number(document.getElementById('tour-field-duration').value) || 120,
         videoSrc: document.getElementById('tour-field-video').value,
         thumbnail: document.getElementById('tour-field-thumb').value,
-        description: document.getElementById('tour-field-desc').value
+        description: document.getElementById('tour-field-desc').value,
+        startPOV: hasStartPOV
+          ? { yaw: Number(startYawEl.value) || 0, pitch: Number(startPitchEl.value) || 0 }
+          : undefined
       };
 
       tourStore.updateTour(activeTour.id, updates);

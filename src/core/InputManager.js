@@ -117,6 +117,19 @@ export class InputManager {
     this.isUserInteracting = false;
   }
 
+  /**
+   * Orient the desktop/touch camera toward a specific starting POV.
+   * yaw/pitch use the same convention as hotspot placement:
+   * yaw 0 = forward (+z), +90 = right, -90 = left; pitch +up / -down.
+   */
+  setStartPOV(yaw = 0, pitch = 0) {
+    const rad = THREE.MathUtils.degToRad(yaw);
+    this.lat = Math.max(-85, Math.min(85, pitch));
+    // Convert marker convention (yaw -> direction (-sin yaw, -cos yaw))
+    // into the desktop lon/lat pan angles that point the camera at it.
+    this.lon = Math.atan2(-Math.cos(rad), -Math.sin(rad)) * (180 / Math.PI);
+  }
+
   onWheel(event) {
     if (this.sceneManager.isInVR) return;
     
@@ -145,8 +158,8 @@ export class InputManager {
     if (this.isPinningMode) {
       const dir = this.raycaster.ray.direction;
       const pitch = Math.asin(dir.y) * (180 / Math.PI);
-      const yaw = Math.atan2(dir.x, -dir.z) * (180 / Math.PI);
-      
+      const yaw = Math.atan2(-dir.x, -dir.z) * (180 / Math.PI);
+
       window.dispatchEvent(new CustomEvent('exhibit-pin-placed', {
         detail: { pitch: pitch.toFixed(1), yaw: yaw.toFixed(1) }
       }));
@@ -198,26 +211,17 @@ export class InputManager {
   }
 
   /**
-   * Returns current camera Pitch (lat) and Yaw (lon) in degrees (-180 to 180)
+   * Returns the yaw/pitch of the direction the user is facing,
+   * using the same convention as HotspotManager.sphericalToCartesian:
+   * yaw 0 = forward (+z), +90 = right, -90 = left, 180 = behind.
+   * Pitch: +up / -down.
    */
   getCurrentAngles() {
-    if (this.sceneManager.isInVR) {
-      // In VR, calculate yaw and pitch directly from camera world direction
-      const dir = new THREE.Vector3();
-      this.camera.getWorldDirection(dir);
-      const pitch = Math.asin(dir.y) * (180 / Math.PI);
-      const yaw = Math.atan2(dir.x, -dir.z) * (180 / Math.PI);
-      return { pitch: pitch.toFixed(1), yaw: yaw.toFixed(1) };
-    } else {
-      // In Desktop mode, calculate from lon/lat
-      let normalizedLon = (this.lon % 360);
-      if (normalizedLon > 180) normalizedLon -= 360;
-      if (normalizedLon < -180) normalizedLon += 360;
-      return {
-        pitch: this.lat.toFixed(1),
-        yaw: normalizedLon.toFixed(1)
-      };
-    }
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    const pitch = Math.asin(dir.y) * (180 / Math.PI);
+    const yaw = Math.atan2(-dir.x, -dir.z) * (180 / Math.PI);
+    return { pitch: pitch.toFixed(1), yaw: yaw.toFixed(1) };
   }
 
   update(delta) {

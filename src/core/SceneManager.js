@@ -23,6 +23,10 @@ export class SceneManager {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
+    // Render immersive sessions at 1.5× the headset's recommended per-eye
+    // buffer — noticeably sharper text on the 360 video and hotspot labels.
+    // Only affects XR sessions; desktop still uses setPixelRatio.
+    this.renderer.xr.setFramebufferScaleFactor(1.5);
     // Explicit sRGB output — matches browser colour management
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     // ACES Filmic at 0.6 exposure: cinematic contrast without clipping highlights
@@ -91,10 +95,12 @@ export class SceneManager {
     this.renderer.xr.addEventListener('sessionstart', () => {
       this.isInVR = true;
       document.body.classList.add('in-vr-session');
+      window.dispatchEvent(new CustomEvent('exhibit-session-start'));
     });
     this.renderer.xr.addEventListener('sessionend', () => {
       this.isInVR = false;
       document.body.classList.remove('in-vr-session');
+      window.dispatchEvent(new CustomEvent('exhibit-session-end'));
     });
   }
 
