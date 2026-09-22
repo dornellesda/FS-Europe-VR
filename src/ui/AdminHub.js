@@ -595,8 +595,7 @@ export class AdminHub {
           <div class="guide-card" style="text-align:center; padding: 48px;">
             <div class="guide-icon">🔒</div>
             <h3>Database Not Connected</h3>
-            <p style="color: var(--text-muted);">Team management requires Supabase to be configured.<br>
-            Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to your environment.</p>
+            <p style="color: var(--text-muted);">Team management requires Supabase to be configured.</p>
           </div>
         </div>
       `;
@@ -605,7 +604,7 @@ export class AdminHub {
 
     container.innerHTML = `
       <div class="admin-two-col">
-        <!-- Left: Member List -->
+        <!-- Left: Active Members from public.profiles (auth backbone) -->
         <div class="admin-list-panel">
           <div class="panel-subhead">
             <h3>Team Members</h3>
@@ -614,35 +613,39 @@ export class AdminHub {
           <div class="admin-items-list" id="team-members-list">
             <div class="empty-state">Loading...</div>
           </div>
+          <div style="margin-top:12px; font-size:12px; color: var(--text-muted); padding: 0 4px;">
+            Backed by <code>auth.users</code> via <code>public.profiles</code>. Members appear once they've signed in.
+          </div>
         </div>
 
         <!-- Right: Invite Form -->
         <div class="admin-form-panel">
           <div class="panel-subhead">
             <h3>Invite a Team Member</h3>
-            <span class="panel-tip">They'll receive a magic link by email</span>
+            <span class="panel-tip">Sends a magic link &mdash; they appear once signed in</span>
           </div>
 
           <form id="form-invite-member" class="admin-form">
             <div class="form-group">
-              <label>Full Name</label>
-              <input type="text" id="invite-name" placeholder="e.g. Sarah Mitchell" required />
-            </div>
-            <div class="form-group">
               <label>Email Address</label>
-              <input type="email" id="invite-email" placeholder="sarah@familysearch.org" required />
+              <input type="email" id="invite-email" placeholder="colleague@familysearch.org" required />
             </div>
             <div id="invite-feedback" style="display:none; padding: 10px; border-radius: 8px; font-size: 14px; margin-bottom: 12px;"></div>
             <div class="form-actions-bar">
-              <button type="submit" class="btn-action-primary green" id="btn-send-invite">✉️ Send Invite Email</button>
+              <button type="submit" class="btn-action-primary green" id="btn-send-invite">✉️ Send Magic Link</button>
             </div>
           </form>
 
           <div style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);">
-            <p style="color: var(--text-muted); font-size: 13px; margin: 0;">
-              <strong style="color: #94a3b8;">ℹ️ About removing access:</strong><br>
-              Removing a member here hides them from this list. To fully revoke their login,
-              also delete them in <a href="https://supabase.com" target="_blank" style="color: var(--accent-cyan);">Supabase → Authentication → Users</a>.
+            <p style="color: var(--text-muted); font-size: 13px; margin: 0; line-height: 1.7;">
+              <strong style="color: #94a3b8;">How this works:</strong><br>
+              1. Enter email → they receive a one-click magic link<br>
+              2. They click it → Supabase creates their <code>auth.users</code> row<br>
+              3. DB trigger auto-creates their <code>public.profiles</code> row<br>
+              4. They appear in this list immediately<br><br>
+              <strong style="color: #94a3b8;">To fully revoke access,</strong> delete them in
+              <a href="https://supabase.com" target="_blank" style="color: var(--accent-cyan);">Supabase → Authentication → Users</a>
+              (cascades to their profile automatically).
             </p>
           </div>
         </div>
@@ -653,7 +656,6 @@ export class AdminHub {
 
     document.getElementById('form-invite-member')?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const name = document.getElementById('invite-name').value.trim();
       const email = document.getElementById('invite-email').value.trim();
       const btn = document.getElementById('btn-send-invite');
       const feedback = document.getElementById('invite-feedback');
@@ -663,29 +665,22 @@ export class AdminHub {
       feedback.style.display = 'none';
 
       try {
-        // Record in team_members table
-        const { error: dbError } = await supabase
-          .from('team_members')
-          .upsert({ email, name }, { onConflict: 'email' });
-        if (dbError) throw dbError;
-
-        // Send magic link so they can set up their account
-        const { error: authError } = await supabase.auth.signInWithOtp({
+        // Send magic link. On click: Supabase creates auth.users row,
+        // DB trigger auto-creates public.profiles row. No manual insert needed.
+        const { error } = await supabase.auth.signInWithOtp({
           email,
           options: { shouldCreateUser: true }
         });
-        if (authError) throw authError;
+        if (error) throw error;
 
-        feedback.textContent = `✅ Invite sent to ${email}! They'll receive a magic link to access the Creator Studio.`;
+        feedback.textContent = `✅ Magic link sent to ${email}! They'll appear here once they've signed in.`;
         feedback.style.cssText = 'display:block; padding:10px; border-radius:8px; font-size:14px; margin-bottom:12px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); color:#86efac;';
-        document.getElementById('invite-name').value = '';
         document.getElementById('invite-email').value = '';
-        this._loadAndRenderTeamMembers();
       } catch (err) {
-        feedback.textContent = `❌ ${err.message || 'Failed to send invite. Please try again.'}`;
+        feedback.textContent = `❌ ${err.message || 'Failed to send. Please try again.'}`;
         feedback.style.cssText = 'display:block; padding:10px; border-radius:8px; font-size:14px; margin-bottom:12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5;';
       } finally {
-        btn.textContent = '✉️ Send Invite Email';
+        btn.textContent = '✉️ Send Magic Link';
         btn.disabled = false;
       }
     });
@@ -696,10 +691,12 @@ export class AdminHub {
     const countEl = document.getElementById('team-count');
     if (!listEl || !supabase) return;
 
+    // public.profiles is the auth backbone — auto-populated by DB trigger on auth.users insert
     const { data, error } = await supabase
-      .from('team_members')
-      .select('*')
-      .order('invited_at', { ascending: true });
+      .from('profiles')
+      .select('id, email, name, role, created_at')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true });
 
     if (error) {
       listEl.innerHTML = `<div class="empty-state" style="color:#f87171;">Failed to load: ${error.message}</div>`;
@@ -707,34 +704,39 @@ export class AdminHub {
     }
 
     const members = data || [];
-    if (countEl) countEl.textContent = `${members.length} member${members.length !== 1 ? 's' : ''}`;
+    if (countEl) countEl.textContent = `${members.length} active member${members.length !== 1 ? 's' : ''}`;
 
     if (members.length === 0) {
-      listEl.innerHTML = `<div class="empty-state">No team members yet. Invite your first colleague →</div>`;
+      listEl.innerHTML = `<div class="empty-state">No members yet. Send a magic link invite →</div>`;
       return;
     }
 
     listEl.innerHTML = members.map(m => `
       <div class="admin-list-item" data-member-id="${m.id}">
         <div class="item-info">
-          <strong>${m.name || 'Unnamed'}</strong>
-          <span class="item-sub">${m.email} &bull; Invited ${new Date(m.invited_at).toLocaleDateString()}</span>
+          <strong>${m.name || m.email}</strong>
+          <span class="item-sub">${m.email} &bull; Joined ${new Date(m.created_at).toLocaleDateString()}</span>
         </div>
         <div class="item-actions">
-          <button class="btn-pill-action delete remove-member" data-member-id="${m.id}" data-member-email="${m.email}" title="Remove from team list">Remove</button>
+          <button class="btn-pill-action delete deactivate-member"
+            data-member-id="${m.id}"
+            data-member-email="${m.email}"
+            title="Hides from list. Delete in Supabase to fully revoke.">
+            Deactivate
+          </button>
         </div>
       </div>
     `).join('');
 
-    listEl.querySelectorAll('.remove-member').forEach(btn => {
+    listEl.querySelectorAll('.deactivate-member').forEach(btn => {
       btn.addEventListener('click', async () => {
         const id = btn.getAttribute('data-member-id');
         const email = btn.getAttribute('data-member-email');
-        if (!confirm(`Remove ${email} from the team list?\n\nNote: To fully revoke login access, also delete them in Supabase → Authentication → Users.`)) return;
+        if (!confirm(`Deactivate ${email}?\n\nThis hides them from this list. To fully revoke login, delete them in Supabase → Authentication → Users.`)) return;
         btn.textContent = '...';
         btn.disabled = true;
-        const { error } = await supabase.from('team_members').delete().eq('id', id);
-        if (error) { alert('Failed to remove: ' + error.message); btn.textContent = 'Remove'; btn.disabled = false; return; }
+        const { error } = await supabase.from('profiles').update({ is_active: false }).eq('id', id);
+        if (error) { alert('Failed: ' + error.message); btn.textContent = 'Deactivate'; btn.disabled = false; return; }
         this._loadAndRenderTeamMembers();
       });
     });
