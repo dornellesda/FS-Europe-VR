@@ -59,6 +59,9 @@ export class AdminHub {
           <button class="admin-tab-btn ${this.activeTab === 'export' ? 'active' : ''}" data-tab="export">
             🌐 Web Deployment & Hosting
           </button>
+          <button class="admin-tab-btn ${this.activeTab === 'team' ? 'active' : ''}" data-tab="team">
+            👥 Team Access
+          </button>
         </div>
 
         <!-- Tab Content Body -->
@@ -99,6 +102,8 @@ export class AdminHub {
       this.renderToursTab(body);
     } else if (this.activeTab === 'hotspots') {
       this.renderHotspotsTab(body);
+    } else if (this.activeTab === 'team') {
+      this.renderTeamTab(body);
     } else {
       this.renderExportTab(body);
     }
@@ -138,7 +143,7 @@ export class AdminHub {
         <div class="admin-form-panel">
           <div class="panel-subhead">
             <h3>Edit Tour Details & Footage</h3>
-            <span class="panel-tip">Changes update live in memory and localStorage</span>
+            <span class="panel-tip">Changes are saved to the database instantly</span>
           </div>
 
           <form id="form-edit-tour" class="admin-form">
@@ -579,6 +584,159 @@ export class AdminHub {
         this.onTourChanged(tourStore.getActiveTour());
       }
       this.renderTabBody();
+    });
+  }
+
+  /* ---------------- TAB 4: TEAM ACCESS ---------------- */
+  renderTeamTab(container) {
+    if (!supabase) {
+      container.innerHTML = `
+        <div class="admin-guide-panel">
+          <div class="guide-card" style="text-align:center; padding: 48px;">
+            <div class="guide-icon">🔒</div>
+            <h3>Database Not Connected</h3>
+            <p style="color: var(--text-muted);">Team management requires Supabase to be configured.<br>
+            Add <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to your environment.</p>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="admin-two-col">
+        <!-- Left: Member List -->
+        <div class="admin-list-panel">
+          <div class="panel-subhead">
+            <h3>Team Members</h3>
+            <span class="panel-tip" id="team-count">Loading...</span>
+          </div>
+          <div class="admin-items-list" id="team-members-list">
+            <div class="empty-state">Loading...</div>
+          </div>
+        </div>
+
+        <!-- Right: Invite Form -->
+        <div class="admin-form-panel">
+          <div class="panel-subhead">
+            <h3>Invite a Team Member</h3>
+            <span class="panel-tip">They'll receive a magic link by email</span>
+          </div>
+
+          <form id="form-invite-member" class="admin-form">
+            <div class="form-group">
+              <label>Full Name</label>
+              <input type="text" id="invite-name" placeholder="e.g. Sarah Mitchell" required />
+            </div>
+            <div class="form-group">
+              <label>Email Address</label>
+              <input type="email" id="invite-email" placeholder="sarah@familysearch.org" required />
+            </div>
+            <div id="invite-feedback" style="display:none; padding: 10px; border-radius: 8px; font-size: 14px; margin-bottom: 12px;"></div>
+            <div class="form-actions-bar">
+              <button type="submit" class="btn-action-primary green" id="btn-send-invite">✉️ Send Invite Email</button>
+            </div>
+          </form>
+
+          <div style="margin-top: 24px; padding: 16px; background: rgba(255,255,255,0.04); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08);">
+            <p style="color: var(--text-muted); font-size: 13px; margin: 0;">
+              <strong style="color: #94a3b8;">ℹ️ About removing access:</strong><br>
+              Removing a member here hides them from this list. To fully revoke their login,
+              also delete them in <a href="https://supabase.com" target="_blank" style="color: var(--accent-cyan);">Supabase → Authentication → Users</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this._loadAndRenderTeamMembers();
+
+    document.getElementById('form-invite-member')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('invite-name').value.trim();
+      const email = document.getElementById('invite-email').value.trim();
+      const btn = document.getElementById('btn-send-invite');
+      const feedback = document.getElementById('invite-feedback');
+
+      btn.textContent = 'Sending...';
+      btn.disabled = true;
+      feedback.style.display = 'none';
+
+      try {
+        // Record in team_members table
+        const { error: dbError } = await supabase
+          .from('team_members')
+          .upsert({ email, name }, { onConflict: 'email' });
+        if (dbError) throw dbError;
+
+        // Send magic link so they can set up their account
+        const { error: authError } = await supabase.auth.signInWithOtp({
+          email,
+          options: { shouldCreateUser: true }
+        });
+        if (authError) throw authError;
+
+        feedback.textContent = `✅ Invite sent to ${email}! They'll receive a magic link to access the Creator Studio.`;
+        feedback.style.cssText = 'display:block; padding:10px; border-radius:8px; font-size:14px; margin-bottom:12px; background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.3); color:#86efac;';
+        document.getElementById('invite-name').value = '';
+        document.getElementById('invite-email').value = '';
+        this._loadAndRenderTeamMembers();
+      } catch (err) {
+        feedback.textContent = `❌ ${err.message || 'Failed to send invite. Please try again.'}`;
+        feedback.style.cssText = 'display:block; padding:10px; border-radius:8px; font-size:14px; margin-bottom:12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5;';
+      } finally {
+        btn.textContent = '✉️ Send Invite Email';
+        btn.disabled = false;
+      }
+    });
+  }
+
+  async _loadAndRenderTeamMembers() {
+    const listEl = document.getElementById('team-members-list');
+    const countEl = document.getElementById('team-count');
+    if (!listEl || !supabase) return;
+
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('*')
+      .order('invited_at', { ascending: true });
+
+    if (error) {
+      listEl.innerHTML = `<div class="empty-state" style="color:#f87171;">Failed to load: ${error.message}</div>`;
+      return;
+    }
+
+    const members = data || [];
+    if (countEl) countEl.textContent = `${members.length} member${members.length !== 1 ? 's' : ''}`;
+
+    if (members.length === 0) {
+      listEl.innerHTML = `<div class="empty-state">No team members yet. Invite your first colleague →</div>`;
+      return;
+    }
+
+    listEl.innerHTML = members.map(m => `
+      <div class="admin-list-item" data-member-id="${m.id}">
+        <div class="item-info">
+          <strong>${m.name || 'Unnamed'}</strong>
+          <span class="item-sub">${m.email} &bull; Invited ${new Date(m.invited_at).toLocaleDateString()}</span>
+        </div>
+        <div class="item-actions">
+          <button class="btn-pill-action delete remove-member" data-member-id="${m.id}" data-member-email="${m.email}" title="Remove from team list">Remove</button>
+        </div>
+      </div>
+    `).join('');
+
+    listEl.querySelectorAll('.remove-member').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-member-id');
+        const email = btn.getAttribute('data-member-email');
+        if (!confirm(`Remove ${email} from the team list?\n\nNote: To fully revoke login access, also delete them in Supabase → Authentication → Users.`)) return;
+        btn.textContent = '...';
+        btn.disabled = true;
+        const { error } = await supabase.from('team_members').delete().eq('id', id);
+        if (error) { alert('Failed to remove: ' + error.message); btn.textContent = 'Remove'; btn.disabled = false; return; }
+        this._loadAndRenderTeamMembers();
+      });
     });
   }
 
