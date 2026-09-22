@@ -38,9 +38,13 @@ export class VideoSphere {
     this.canvasTexture.magFilter = THREE.LinearFilter;
 
     // MeshBasicMaterial: unlit — scene lights have zero effect on the panorama.
-    // toneMapped defaults to true, so the renderer's ACESFilmic tone mapping is applied.
+    // toneMapped: false skips the renderer's ACESFilmic tone mapping entirely.
+    // With SRGBColorSpace textures + SRGBColorSpace output, the round-trip is
+    // net-zero: the panorama renders 1:1 with the raw source image.
     this.material = new THREE.MeshBasicMaterial({
       map: this.canvasTexture,
+      color: 0xffffff,
+      toneMapped: false,
     });
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
