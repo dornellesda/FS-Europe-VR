@@ -20,10 +20,11 @@ export class SceneManager {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
-    // NoToneMapping = video renders exactly as encoded, no cinematic processing.
-    // ACES/Filmic tone mapping is designed for synthetic 3D scenes and over-exposes
-    // real-world 360° video footage, blowing out highlights.
-    this.renderer.toneMapping = THREE.NoToneMapping;
+    // Explicit sRGB output — matches browser colour management
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // ACES Filmic at 0.6 exposure: cinematic contrast without clipping highlights
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 0.6;
 
     this.container.appendChild(this.renderer.domElement);
 
@@ -44,16 +45,15 @@ export class SceneManager {
   }
 
   setupLighting() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+    // Low-intensity ambient so any 3D hotspot meshes are visible.
+    // MeshBasicMaterial (used by the video sphere) is unlit — these
+    // lights have zero effect on the panorama background.
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
     this.scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xe0e7ff, 1.5);
+    const dirLight = new THREE.DirectionalLight(0xe0e7ff, 0.5);
     dirLight.position.set(2, 6, 3);
     this.scene.add(dirLight);
-
-    const softFillLight = new THREE.DirectionalLight(0x87b940, 0.6);
-    softFillLight.position.set(-3, -2, -2);
-    this.scene.add(softFillLight);
   }
 
   setupVR() {

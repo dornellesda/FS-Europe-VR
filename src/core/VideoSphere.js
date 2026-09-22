@@ -37,44 +37,10 @@ export class VideoSphere {
     this.canvasTexture.minFilter = THREE.LinearFilter;
     this.canvasTexture.magFilter = THREE.LinearFilter;
 
-    // Custom shader material for precise colour grading without tone mapping.
-    // Contrast and saturation are applied in the fragment shader.
-    this.material = new THREE.ShaderMaterial({
-      uniforms: {
-        map:        { value: this.canvasTexture },
-        gamma:      { value: 1.05 },  // > 1.0 gently compresses highlights without clipping
-        saturation: { value: 1.05 },  // 1.0 = neutral, > 1.0 = more vivid
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform sampler2D map;
-        uniform float gamma;
-        uniform float saturation;
-        varying vec2 vUv;
-
-        void main() {
-          vec4 tex = texture2D(map, vUv);
-          vec3 color = tex.rgb;
-
-          // Gamma > 1.0 non-linearly compresses highlights:
-          // near-whites are pulled back, midtones and shadows are barely affected.
-          // Much softer than linear contrast which can clip/blow whites.
-          color = pow(clamp(color, 0.0, 1.0), vec3(gamma));
-
-          // Saturation: mix between luminance (grey) and full colour
-          float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-          color = mix(vec3(luma), color, saturation);
-
-          gl_FragColor = vec4(clamp(color, 0.0, 1.0), tex.a);
-        }
-      `,
-      side: THREE.FrontSide,
+    // MeshBasicMaterial: unlit — scene lights have zero effect on the panorama.
+    // toneMapped defaults to true, so the renderer's ACESFilmic tone mapping is applied.
+    this.material = new THREE.MeshBasicMaterial({
+      map: this.canvasTexture,
     });
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
@@ -136,7 +102,7 @@ export class VideoSphere {
     this.videoTexture.magFilter = THREE.LinearFilter;
     this.videoTexture.generateMipmaps = false;
 
-    this.material.uniforms.map.value = this.videoTexture;
+    this.material.map = this.videoTexture;
     this.material.needsUpdate = true;
     this.isUsingRealVideo = true;
 
