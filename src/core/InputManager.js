@@ -70,10 +70,10 @@ export class InputManager {
         window.dispatchEvent(new CustomEvent('exhibit-toggle-play'));
       } else if (e.code === 'ArrowRight') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('exhibit-seek-relative', { detail: 5 }));
+        window.dispatchEvent(new CustomEvent('exhibit-seek-relative', { detail: 10 }));
       } else if (e.code === 'ArrowLeft') {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('exhibit-seek-relative', { detail: -5 }));
+        window.dispatchEvent(new CustomEvent('exhibit-seek-relative', { detail: -10 }));
       } else if (e.key === 'c' || e.key === 'C') {
         window.dispatchEvent(new CustomEvent('exhibit-toggle-calibration'));
       }

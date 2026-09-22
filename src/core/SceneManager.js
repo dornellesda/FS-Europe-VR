@@ -14,6 +14,8 @@ export class SceneManager {
       1000
     );
     this.camera.position.set(0, 1.6, 0); // Average eye-level height (1.6m) in VR
+    // Layer 1 renders the isolated 360 panorama (lights have no effect on it)
+    this.camera.layers.enable(1);
 
     // WebGL Renderer with WebXR enabled
     this.renderer = new THREE.WebGLRenderer({ antialias: true });

@@ -224,8 +224,7 @@ class WebXRExhibitApp {
       this.videoSphere.loadUrl(tour.videoSrc);
     } else {
       // Procedural Gallery simulation with timeline duration
-      this.videoSphere.duration = tour.duration || 120;
-      this.videoSphere.play();
+      this.videoSphere.useProcedural(tour.duration || 120);
     }
   }
 

@@ -46,9 +46,13 @@ export class VideoSphere {
       color: 0xffffff,
       toneMapped: false,
     });
+    // Dim base multiplier to keep bright source whites from clipping to pure white
+    this.material.color.setScalar(0.75);
 
     this.mesh = new THREE.Mesh(this.geometry, this.material);
     this.mesh.position.set(0, 0, 0);
+    // Isolate the panorama to layer 1 so no scene lights can illuminate it
+    this.mesh.layers.set(1);
     this.scene.add(this.mesh);
 
     this.setupVideoEvents();
@@ -113,11 +117,25 @@ export class VideoSphere {
     this.play();
   }
 
+  useProcedural(duration) {
+    // Switch back to the procedural gallery fallback when a tour has no video.
+    if (this.isUsingRealVideo) this.video.pause();
+    this.isUsingRealVideo = false;
+    this.material.map = this.canvasTexture;
+    this.material.needsUpdate = true;
+    if (duration) this.duration = duration;
+    this.currentTime = 0;
+    this.isPlaying = true;
+    this.emit('play');
+  }
+
   play() {
     this.isPlaying = true;
     if (this.isUsingRealVideo) {
       this.video.play().catch((err) => {
         console.warn('Autoplay blocked, user interaction required:', err);
+        this.isPlaying = false;
+        this.emit('pause');
       });
     } else {
       this.emit('play');
@@ -134,7 +152,15 @@ export class VideoSphere {
   }
 
   togglePlay() {
-    if (this.isPlaying) {
+    if (this.isUsingRealVideo) {
+      // HTMLVideoElement.paused is the authoritative source of truth,
+      // so the toggle stays correct even while the video is buffering.
+      if (this.video.paused) {
+        this.play();
+      } else {
+        this.pause();
+      }
+    } else if (this.isPlaying) {
       this.pause();
     } else {
       this.play();
@@ -155,7 +181,22 @@ export class VideoSphere {
   }
 
   setVolume(val) {
-    this.video.volume = Math.max(0, Math.min(val, 1));
+    if (!this.video) return;
+    const v = Math.max(0, Math.min(val, 1));
+    this.video.volume = v;
+    this.video.muted = v === 0;
+  }
+
+  isMuted() {
+    return this.video ? this.video.muted : false;
+  }
+
+  setMuted(muted) {
+    if (!this.video) return;
+    if (!muted && this.video.volume === 0) {
+      this.video.volume = 0.8;
+    }
+    this.video.muted = muted;
   }
 
   addEventListener(event, callback) {
