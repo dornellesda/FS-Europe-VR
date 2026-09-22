@@ -41,9 +41,9 @@ export class VideoSphere {
     // Contrast and saturation are applied in the fragment shader.
     this.material = new THREE.ShaderMaterial({
       uniforms: {
-        map: { value: this.canvasTexture },
-        contrast:   { value: 1.05 },  // 1.0 = neutral, > 1.0 = more contrast
-        saturation: { value: 1.10 },  // 1.0 = neutral, > 1.0 = more vivid
+        map:        { value: this.canvasTexture },
+        gamma:      { value: 1.05 },  // > 1.0 gently compresses highlights without clipping
+        saturation: { value: 1.05 },  // 1.0 = neutral, > 1.0 = more vivid
       },
       vertexShader: `
         varying vec2 vUv;
@@ -54,26 +54,23 @@ export class VideoSphere {
       `,
       fragmentShader: `
         uniform sampler2D map;
-        uniform float contrast;
+        uniform float gamma;
         uniform float saturation;
         varying vec2 vUv;
-
-        vec3 applySaturation(vec3 color, float sat) {
-          // Luminance weights (ITU-R BT.709)
-          float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
-          return mix(vec3(luma), color, sat);
-        }
-
-        vec3 applyContrast(vec3 color, float con) {
-          // Pivot at 0.5 midpoint
-          return (color - 0.5) * con + 0.5;
-        }
 
         void main() {
           vec4 tex = texture2D(map, vUv);
           vec3 color = tex.rgb;
-          color = applyContrast(color, contrast);
-          color = applySaturation(color, saturation);
+
+          // Gamma > 1.0 non-linearly compresses highlights:
+          // near-whites are pulled back, midtones and shadows are barely affected.
+          // Much softer than linear contrast which can clip/blow whites.
+          color = pow(clamp(color, 0.0, 1.0), vec3(gamma));
+
+          // Saturation: mix between luminance (grey) and full colour
+          float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+          color = mix(vec3(luma), color, saturation);
+
           gl_FragColor = vec4(clamp(color, 0.0, 1.0), tex.a);
         }
       `,

@@ -116,17 +116,23 @@ class TourStore {
       const { data, error } = await supabase.from('tours').select('*');
       if (error) throw error;
       if (data && data.length > 0) {
-        this.tours = data;
+        // Normalise rows: Supabase JSONB can return null for empty arrays
+        this.tours = data.map(t => ({
+          ...t,
+          hotspots: t.hotspots || [],
+          duration: t.duration || 120,
+        }));
       } else {
-        // If DB is empty, seed it with initial catalog
-        await supabase.from('tours').insert(this.tours);
+        // Table is empty — seed it with the initial catalog
+        const { error: insertError } = await supabase.from('tours').insert(this.tours);
+        if (insertError) throw insertError;
       }
       if (!this.tours.find(t => t.id === this.activeTourId)) {
         this.activeTourId = this.tours[0].id;
       }
       this.notify();
     } catch (e) {
-      console.error('Supabase fetch failed:', e);
+      console.error('Supabase fetch failed, falling back to local data:', e);
     }
   }
 
