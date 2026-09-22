@@ -16,7 +16,8 @@ export class SceneManager {
     this.camera.position.set(0, 1.6, 0); // Average eye-level height (1.6m) in VR
 
     // WebGL Renderer with WebXR enabled
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer.setClearColor(0x09090b, 1); // Dark background — no white flash on load
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.xr.enabled = true;
