@@ -21,8 +21,6 @@ class WebXRExhibitApp {
   }
 
   init() {
-    const activeTour = tourStore.getActiveTour();
-
     // 1. Initialize Three.js WebXR Scene & Renderer
     this.sceneManager = new SceneManager(this.container);
 
@@ -76,16 +74,14 @@ class WebXRExhibitApp {
     );
     this.sceneManager.registerUpdatable(this.videoPopupModal);
 
-    // 6. Initialize Hotspot Manager with current tour's hotspots
+    // 6. Initialize Hotspot Manager — populated once DB hydration settles.
     this.hotspotManager = new HotspotManager(
       this.sceneManager.scene,
       this.sceneManager.camera,
-      activeTour.hotspots || [],
+      [],
       (hotspot) => this.handleHotspotTrigger(hotspot)
     );
     this.sceneManager.registerUpdatable(this.hotspotManager);
-
-    this.syncInteractiveMeshes();
 
     // Sync hotspots visibility whenever video time updates
     this.videoSphere.addEventListener('timeupdate', (data) => {
@@ -135,8 +131,8 @@ class WebXRExhibitApp {
       }
     );
 
-    // 9. Initialize Video HUD
-    this.videoHUD = new VideoHUD(this.videoSphere, activeTour, {
+    // 9. Initialize Video HUD — tour data is applied after DB hydration
+    this.videoHUD = new VideoHUD(this.videoSphere, null, {
       onOpenCatalog: () => this.tourCatalog.open(),
       onOpenAdmin: () => this._openAdminGated(),
       onToggleCalib: () => this.calibrationOverlay.toggle()
@@ -172,12 +168,7 @@ class WebXRExhibitApp {
     });
 
 
-    // 10. Load Initial Tour Media
-    this.applyTourMedia(activeTour);
-    // Orient initial camera to the active tour's start POV (defaults stay if not set)
-    this.applyStartPOV(activeTour);
-
-    // 11. Check for admin URL parameter
+    // 10. Check for admin URL parameter
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('admin') || window.location.pathname.includes('/admin')) {
       setTimeout(async () => {
@@ -192,9 +183,15 @@ class WebXRExhibitApp {
       }, 500);
     }
 
-    // Subscribe to store updates (e.g. when DB finishes loading)
+    // Subscribe to store updates (e.g. when DB finishes loading or admin edits)
     tourStore.subscribe((tours, activeTour) => {
+      if (!tourStore.isHydrated) return; // never render seed data mid-hydration
       this.switchTour(activeTour);
+    });
+
+    // 10. Load the real tour catalog as soon as Supabase hydration settles
+    this.bootstrapTour().catch((err) => {
+      console.error('Tour bootstrap failed:', err);
     });
 
     // Rotate the 3D world on VR entry so the headset user starts facing
@@ -213,6 +210,27 @@ class WebXRExhibitApp {
     });
 
     console.log('FamilySearch Europe VR Initialized Successfully');
+  }
+
+  /**
+   * Waits for the tour catalog to hydrate from Supabase, then wires every
+   * tour-dependent UI (hotspots, HUD, 360 video, start POV). Until this runs
+   * the scene is neutral — no seed/demo data is ever shown as real content.
+   */
+  async bootstrapTour() {
+    const store = await tourStore.ready;
+    const tour = store.getActiveTour();
+    if (!tour) {
+      console.warn('[Bootstrap] No active tour available after hydration.');
+      return;
+    }
+    console.log(`[Bootstrap] Tour catalog hydrated from ${store.hydrationStatus === 'ready' ? 'database' : store.hydrationStatus + ' (demo data)'}:`, tour.title);
+
+    this.hotspotManager.setHotspotsData(tour.hotspots || []);
+    this.syncInteractiveMeshes();
+    this.videoHUD.setTour(tour);
+    this.applyTourMedia(tour);
+    this.applyStartPOV(tour);
   }
 
   syncInteractiveMeshes() {

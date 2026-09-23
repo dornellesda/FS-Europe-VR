@@ -109,11 +109,25 @@ class TourStore {
     this.tours = JSON.parse(JSON.stringify(initialCatalog));
     this.activeTourId = this.tours[0]?.id || "science-wonder-tour";
     this.listeners = [];
+    // Hydration: the app must NOT render seed data as if it were the real
+    // catalog. Consumers await `ready` before touching tour-dependent UI.
+    this.isHydrated = false;
+    this.hydrationStatus = supabase ? 'loading' : 'disabled'; // loading|ready|empty|error|disabled
+    const ready = new Promise((resolve) => {
+      this._resolveReady = resolve;
+    });
+    this.ready = ready;
     this.initSupabase();
   }
 
   async initSupabase() {
-    if (!supabase) return;
+    if (!supabase) {
+      // No backend configured (missing VITE_* env at build time). The
+      // hardcoded catalog is the only data source — clearly reported as such.
+      this.hydrationStatus = 'disabled';
+      this._finishHydration();
+      return;
+    }
     try {
       const { data, error } = await supabase.from('tours').select('*');
       if (error) throw error;
@@ -124,17 +138,32 @@ class TourStore {
           hotspots: t.hotspots || [],
           duration: t.duration || 120,
         }));
+        this.hydrationStatus = 'ready';
       } else {
-        // Table is empty — seed it with the initial catalog
-        const { error: insertError } = await supabase.from('tours').insert(this.tours);
-        if (insertError) throw insertError;
+        // Table exists but is empty. Do NOT auto-write the seed catalog into
+        // the DB — that would make placeholder rows look like real content and
+        // re-poison production after any table reset. Keep the in-memory seed
+        // catalog as a usable syllabus and report that it's demo data.
+        this.hydrationStatus = 'empty';
+        console.warn('[TourStore] tours table is empty — using in-memory demo catalog. Add tours via Admin Hub (Key A) or seed the table from SQL.');
       }
       if (!this.tours.find(t => t.id === this.activeTourId)) {
         this.activeTourId = this.tours[0].id;
       }
       this.notify();
     } catch (e) {
-      console.error('Supabase fetch failed, falling back to local data:', e);
+      this.hydrationStatus = 'error';
+      console.error('Supabase fetch failed, using in-memory demo catalog:', e);
+    }
+    this._finishHydration();
+  }
+
+  _finishHydration() {
+    if (this.isHydrated) return;
+    this.isHydrated = true;
+    if (this._resolveReady) {
+      this._resolveReady(this);
+      this._resolveReady = null;
     }
   }
 
