@@ -104,6 +104,16 @@ export const initialCatalog = [
   }
 ];
 
+const TOUR_COLUMNS = ['id','title','subtitle','category','thumbnail','description','videoSrc','duration','hotspots'];
+
+function toDbRow(tour) {
+  const row = {};
+  for (const col of TOUR_COLUMNS) {
+    if (tour[col] !== undefined) row[col] = tour[col];
+  }
+  return row;
+}
+
 class TourStore {
   constructor() {
     this.tours = JSON.parse(JSON.stringify(initialCatalog));
@@ -171,12 +181,36 @@ class TourStore {
 
   async save() {
     this.notify();
-    if (supabase) {
-      const { error } = await supabase.from('tours').upsert(this.tours);
-      if (error) {
-        console.error('Supabase save error:', error);
-      }
+    if (!supabase) {
+      console.warn('[TourStore] Supabase not configured — changes are local-only for this session.');
+      this.emitSaveError('Supabase is not configured. Changes will not persist after refresh.');
+      return { ok: false, reason: 'offline' };
     }
+    // Only send known DB columns. PostgREST rejects upsert payloads that
+    // contain keys with no matching column (e.g. the in-memory `startPOV`).
+    const { error } = await supabase.from('tours').upsert(this.tours.map(toDbRow));
+    if (error) {
+      console.error('Supabase save error:', error);
+      this.emitSaveError(error);
+      return { ok: false, reason: 'db', error };
+    }
+    return { ok: true };
+  }
+
+  emitSaveError(error) {
+    const message =
+      (error && (error.message || error.error_description || error)) ||
+      'Unknown database error';
+    // Check for the classic RLS/auth failure so the UI can tell the user.
+    if (error && /42501|row-level security|JWT|permission/i.test(String(error.message || error.code || error))) {
+      window.dispatchEvent(new CustomEvent('exhibit-save-error', {
+        detail: { message: 'Database rejected your change — are you signed in? Open Creator Studio, sign in, then retry.', auth: true }
+      }));
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('exhibit-save-error', {
+      detail: { message: `Database error: ${message}` }
+    }));
   }
 
   subscribe(listener) {
@@ -208,7 +242,7 @@ class TourStore {
     return null;
   }
 
-  addTour(tour) {
+  async addTour(tour) {
     const id = tour.id || `tour-${Date.now()}`;
     const newTour = {
       ...tour,
@@ -217,34 +251,46 @@ class TourStore {
       hotspots: tour.hotspots || []
     };
     this.tours.push(newTour);
-    this.save();
-    return newTour;
+    this.notify();
+    const res = await this.save();
+    return { ...res, tour: newTour };
   }
 
-  updateTour(id, updates) {
+  async updateTour(id, updates) {
     const index = this.tours.findIndex((t) => t.id === id);
-    if (index !== -1) {
-      this.tours[index] = { ...this.tours[index], ...updates };
-      this.save();
-      return this.tours[index];
-    }
-    return null;
+    if (index === -1) return { ok: false, reason: 'not-found', error: 'Tour not found' };
+    this.tours[index] = { ...this.tours[index], ...updates };
+    this.notify();
+    const res = await this.save();
+    return { ...res, tour: this.tours[index] };
   }
 
-  deleteTour(id) {
+  async deleteTour(id) {
     if (this.tours.length <= 1) {
       throw new Error("Cannot delete the only remaining tour.");
+    }
+    if (supabase) {
+      const { error } = await supabase.from('tours').delete().eq('id', id);
+      if (error) {
+        console.error('Supabase delete error:', error);
+        this.emitSaveError(error);
+        return { ok: false, reason: 'db', error };
+      }
+    } else {
+      this.emitSaveError('Supabase is not configured — deletion only affects this browser session.');
+      return { ok: false, reason: 'offline' };
     }
     this.tours = this.tours.filter((t) => t.id !== id);
     if (this.activeTourId === id) {
       this.activeTourId = this.tours[0].id;
     }
-    this.save();
+    this.notify();
+    return { ok: true };
   }
 
-  addHotspot(tourId, hotspot) {
+  async addHotspot(tourId, hotspot) {
     const tour = this.tours.find((t) => t.id === tourId);
-    if (!tour) return null;
+    if (!tour) return { ok: false, reason: 'not-found', error: 'Tour not found' };
 
     const newHotspot = {
       id: hotspot.id || `hotspot-${Date.now()}`,
@@ -261,30 +307,30 @@ class TourStore {
 
     tour.hotspots = tour.hotspots || [];
     tour.hotspots.push(newHotspot);
-    this.save();
-    return newHotspot;
+    this.notify();
+    const res = await this.save();
+    return { ...res, hotspot: newHotspot };
   }
 
-  updateHotspot(tourId, hotspotId, updates) {
+  async updateHotspot(tourId, hotspotId, updates) {
     const tour = this.tours.find((t) => t.id === tourId);
-    if (!tour) return null;
+    if (!tour) return { ok: false, reason: 'not-found', error: 'Tour not found' };
 
     const index = tour.hotspots.findIndex((h) => h.id === hotspotId);
-    if (index !== -1) {
-      tour.hotspots[index] = { ...tour.hotspots[index], ...updates };
-      this.save();
-      return tour.hotspots[index];
-    }
-    return null;
+    if (index === -1) return { ok: false, reason: 'not-found', error: 'Hotspot not found' };
+    tour.hotspots[index] = { ...tour.hotspots[index], ...updates };
+    this.notify();
+    const res = await this.save();
+    return { ...res, hotspot: tour.hotspots[index] };
   }
 
-  deleteHotspot(tourId, hotspotId) {
+  async deleteHotspot(tourId, hotspotId) {
     const tour = this.tours.find((t) => t.id === tourId);
-    if (!tour) return false;
+    if (!tour) return { ok: false, reason: 'not-found', error: 'Tour not found' };
 
     tour.hotspots = tour.hotspots.filter((h) => h.id !== hotspotId);
-    this.save();
-    return true;
+    this.notify();
+    return await this.save();
   }
 
   exportJSON() {
@@ -297,8 +343,8 @@ class TourStore {
       if (Array.isArray(parsed) && parsed.length > 0) {
         this.tours = parsed;
         this.activeTourId = this.tours[0].id;
-        this.save();
-        return true;
+        this.notify();
+        return this.save();
       }
       throw new Error("Imported JSON must be a non-empty array of tours.");
     } catch (e) {
@@ -307,10 +353,11 @@ class TourStore {
     }
   }
 
-  resetToDefaults() {
+  async resetToDefaults() {
     this.tours = JSON.parse(JSON.stringify(initialCatalog));
     this.activeTourId = this.tours[0].id;
-    this.save();
+    this.notify();
+    return await this.save();
   }
 }
 

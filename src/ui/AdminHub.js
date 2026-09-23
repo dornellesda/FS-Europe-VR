@@ -18,6 +18,81 @@ export class AdminHub {
     }
 
     this.render();
+
+    // Surface background save failures (e.g. RLS rejecting a write) so the
+    // user is never left thinking a change was persisted when it wasn't.
+    window.addEventListener('exhibit-save-error', (e) => {
+      this._toast(e.detail?.message || 'Save failed. Check that you are signed in.', true);
+    });
+
+    this._initSessionBadge();
+  }
+
+  _toast(message, isError = false) {
+    let el = document.getElementById('admin-toast-top');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'admin-toast-top';
+      el.style.position = 'fixed';
+      el.style.top = '20px';
+      el.style.left = '50%';
+      el.style.transform = 'translateX(-50%)';
+      el.style.background = 'rgba(3,7,18,0.92)';
+      el.style.backdropFilter = 'blur(12px)';
+      el.style.WebkitBackdropFilter = 'blur(12px)';
+      el.style.border = '1px solid rgba(148,163,184,0.35)';
+      el.style.color = '#f8fafc';
+      el.style.padding = '12px 24px';
+      el.style.borderRadius = '30px';
+      el.style.zIndex = '10001';
+      el.style.fontFamily = "'Inter', 'Noto Sans', sans-serif";
+      el.style.fontSize = '14px';
+      el.style.fontWeight = '600';
+      el.style.boxShadow = '0 6px 28px rgba(0,0,0,0.6)';
+      el.style.pointerEvents = 'none';
+      el.style.transition = 'opacity 0.25s ease';
+      el.style.maxWidth = 'min(90vw, 640px)';
+      el.style.textAlign = 'center';
+      el.style.lineHeight = '1.5';
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.style.background = isError ? 'rgba(69,10,10,0.95)' : 'rgba(6,78,59,0.95)';
+    el.style.border = isError ? '1px solid rgba(248,113,113,0.55)' : '1px solid rgba(52,211,153,0.5)';
+    el.style.color = isError ? '#fecaca' : '#a7f3d0';
+    el.style.opacity = '1';
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => { el.style.opacity = '0'; }, 4000);
+  }
+
+  async _initSessionBadge() {
+    const el = document.getElementById('admin-auth-status');
+    if (!el) return;
+    if (!supabase) {
+      el.textContent = 'Demo mode — changes are local-only';
+      el.style.background = 'rgba(245,158,11,0.15)';
+      el.style.border = '1px solid rgba(245,158,11,0.5)';
+      el.style.color = '#fcd34d';
+      return;
+    }
+    let data;
+    try {
+      data = await supabase.auth.getSession();
+    } catch {
+      return;
+    }
+    const user = data?.data?.session?.user;
+    if (user) {
+      el.textContent = `Signed in as ${user.email || 'admin'}`;
+      el.style.background = 'rgba(34,197,94,0.15)';
+      el.style.border = '1px solid rgba(34,197,94,0.5)';
+      el.style.color = '#86efac';
+    } else {
+      el.textContent = 'Signed out — saves require sign in';
+      el.style.background = 'rgba(239,68,68,0.15)';
+      el.style.border = '1px solid rgba(239,68,68,0.5)';
+      el.style.color = '#fca5a5';
+    }
   }
 
   render() {
@@ -34,6 +109,7 @@ export class AdminHub {
           </div>
 
           <div class="admin-header-actions">
+            <span class="admin-session-pill" id="admin-auth-status" style="display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border-radius:20px; font-size:12px; font-weight:600; white-space:nowrap;">checking…</span>
             <button class="btn-glass" id="btn-admin-export" title="Download tourData.json">
               <span>📥 Export JSON</span>
             </button>
@@ -225,32 +301,49 @@ export class AdminHub {
     });
 
     container.querySelectorAll('.btn-pill-action.delete').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const id = btn.getAttribute('data-tour-id');
-        if (confirm('Are you sure you want to delete this tour?')) {
-          tourStore.deleteTour(id);
+        if (!confirm('Are you sure you want to delete this tour?')) return;
+        btn.disabled = true;
+        try {
+          const res = await tourStore.deleteTour(id);
+          if (!res.ok) {
+            const why = res.error?.message || 'are you signed in?';
+            this._toast(`Delete failed — ${why}`, true);
+            return;
+          }
+          this._toast('Tour deleted from database ✔');
           this.switchTour(tourStore.getActiveTour().id);
+        } catch (err) {
+          this._toast('Delete failed — ' + err.message, true);
+        } finally {
+          const freshBtn = this.container.querySelector(`[data-tour-id="${id}"] .btn-pill-action.delete`);
+          if (freshBtn) freshBtn.disabled = false;
         }
       });
     });
 
     // New Tour Button
-    document.getElementById('btn-admin-new-tour')?.addEventListener('click', () => {
+    document.getElementById('btn-admin-new-tour')?.addEventListener('click', async () => {
       const newTitle = prompt('Enter title for the new VR experience:', 'New Guided 360° Tour');
-      if (newTitle) {
-        const created = tourStore.addTour({
-          title: newTitle,
-          subtitle: 'Guided walkthrough experience',
-          category: 'Exhibition',
-          thumbnail: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=600&q=80',
-          description: 'A new 360 degree guided exhibition tour.',
-          videoSrc: '',
-          duration: 120,
-          hotspots: []
-        });
-        this.switchTour(created.id);
+      if (!newTitle) return;
+      const res = await tourStore.addTour({
+        title: newTitle,
+        subtitle: 'Guided walkthrough experience',
+        category: 'Exhibition',
+        thumbnail: 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?auto=format&fit=crop&w=600&q=80',
+        description: 'A new 360 degree guided exhibition tour.',
+        videoSrc: '',
+        duration: 120,
+        hotspots: []
+      });
+      if (res.ok) {
+        this._toast('Tour created & saved to database ✔');
+      } else {
+        this._toast('Tour created locally but NOT saved — retry after signing in.', true);
       }
+      this.switchTour(res.tour.id);
     });
 
     // File picker for local video
@@ -270,7 +363,7 @@ export class AdminHub {
     });
 
     // Save Form
-    document.getElementById('form-edit-tour')?.addEventListener('submit', (e) => {
+    document.getElementById('form-edit-tour')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const startYawEl = document.getElementById('tour-field-start-yaw');
       const startPitchEl = document.getElementById('tour-field-start-pitch');
@@ -288,8 +381,13 @@ export class AdminHub {
           : undefined
       };
 
-      tourStore.updateTour(activeTour.id, updates);
-      alert('Tour details saved successfully!');
+      const res = await tourStore.updateTour(activeTour.id, updates);
+      if (res.ok) {
+        this._toast('Tour details saved to database ✔');
+      } else {
+        const why = res.error?.message || 'are you signed in?';
+        this._toast(`Save failed — ${why}`, true);
+      }
       if (this.onTourChanged) {
         this.onTourChanged(tourStore.getActiveTour());
       }
@@ -545,21 +643,26 @@ export class AdminHub {
 
     // Delete Hotspot
     container.querySelectorAll('.delete-hotspot').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         e.stopPropagation();
         const id = btn.getAttribute('data-hotspot-id');
-        if (confirm('Delete this hotspot?')) {
-          tourStore.deleteHotspot(activeTour.id, id);
-          if (this.onTourChanged) {
-            this.onTourChanged(tourStore.getActiveTour());
-          }
-          this.renderTabBody();
+        if (!confirm('Delete this hotspot?')) return;
+        btn.disabled = true;
+        const res = await tourStore.deleteHotspot(activeTour.id, id);
+        if (!res.ok) {
+          this._toast(`Delete failed — ${res.error?.message || 'are you signed in?'}`, true);
+        } else {
+          this._toast('Hotspot deleted & saved ✔');
         }
+        if (this.onTourChanged) {
+          this.onTourChanged(tourStore.getActiveTour());
+        }
+        this.renderTabBody();
       });
     });
 
     // Submit Hotspot Form
-    document.getElementById('form-hotspot-author')?.addEventListener('submit', (e) => {
+    document.getElementById('form-hotspot-author')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const type = typeSelect.value;
       const title = document.getElementById('hs-title').value;
@@ -607,8 +710,12 @@ export class AdminHub {
         };
       }
 
-      tourStore.addHotspot(activeTour.id, newHotspot);
-      alert('Hotspot created and synchronized with tour!');
+      const res = await tourStore.addHotspot(activeTour.id, newHotspot);
+      if (res.ok) {
+        this._toast('Hotspot created & saved to database ✔');
+      } else {
+        this._toast(`Hotspot created locally but NOT saved — ${res.error?.message || 'are you signed in?'}`, true);
+      }
       if (this.onTourChanged) {
         this.onTourChanged(tourStore.getActiveTour());
       }
@@ -798,7 +905,7 @@ export class AdminHub {
 
             <div class="step-card">
               <h4>Option C: Exporting & Saving Configurations</h4>
-              <p>Whenever you add tours or author hotspots in this Studio, your changes are immediately saved in your browser's local storage. Click the button below to download the master configuration file:</p>
+              <p>Whenever you add tours or author hotspots in this Studio, your changes are saved to your Supabase database (requires being signed in — see the badge in the header). Click the button below to download the master configuration file:</p>
               <button class="btn-action-primary blue" id="btn-guide-export-json">
                 📥 Download master tourConfig.json
               </button>
@@ -829,16 +936,20 @@ export class AdminHub {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
-        tourStore.importJSON(e.target.result);
-        alert('Tours configuration imported successfully!');
+        const res = await tourStore.importJSON(e.target.result);
+        if (res.ok) {
+          this._toast('Tours configuration imported & saved to database ✔');
+        } else {
+          this._toast(`Imported locally but NOT saved — ${res.error?.message || 'are you signed in?'}`, true);
+        }
         if (this.onTourChanged) {
           this.onTourChanged(tourStore.getActiveTour());
         }
         this.renderTabBody();
       } catch (err) {
-        alert('Failed to import JSON: ' + err.message);
+        this._toast('Failed to import JSON: ' + err.message, true);
       }
     };
     reader.readAsText(file);
