@@ -378,7 +378,7 @@ export class AdminHub {
         description: document.getElementById('tour-field-desc').value,
         startPOV: hasStartPOV
           ? { yaw: Number(startYawEl.value) || 0, pitch: Number(startPitchEl.value) || 0 }
-          : undefined
+          : null
       };
 
       const res = await tourStore.updateTour(activeTour.id, updates);

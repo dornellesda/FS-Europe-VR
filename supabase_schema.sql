@@ -14,10 +14,14 @@ create table if not exists public.tours (
   description  text,
   "videoSrc"   text,
   duration     integer default 120,
-  hotspots     jsonb default '[]'::jsonb
+  hotspots     jsonb default '[]'::jsonb,
+  "startPOV"   jsonb
 );
 
 alter table public.tours enable row level security;
+
+-- Migration for existing tables: add Start POV storage (jsonb: {yaw, pitch})
+alter table public.tours add column if not exists "startPOV" jsonb;
 
 -- Drop old conflicting policies first (safe to re-run)
 drop policy if exists "Public read access" on public.tours;

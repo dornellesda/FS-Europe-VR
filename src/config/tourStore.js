@@ -104,7 +104,7 @@ export const initialCatalog = [
   }
 ];
 
-const TOUR_COLUMNS = ['id','title','subtitle','category','thumbnail','description','videoSrc','duration','hotspots'];
+const TOUR_COLUMNS = ['id','title','subtitle','category','thumbnail','description','videoSrc','duration','hotspots','startPOV'];
 
 function toDbRow(tour) {
   const row = {};
@@ -147,6 +147,7 @@ class TourStore {
           ...t,
           hotspots: t.hotspots || [],
           duration: t.duration || 120,
+          startPOV: (t.startPOV && typeof t.startPOV === 'object') ? t.startPOV : undefined,
         }));
         this.hydrationStatus = 'ready';
       } else {
@@ -186,15 +187,37 @@ class TourStore {
       this.emitSaveError('Supabase is not configured. Changes will not persist after refresh.');
       return { ok: false, reason: 'offline' };
     }
-    // Only send known DB columns. PostgREST rejects upsert payloads that
-    // contain keys with no matching column (e.g. the in-memory `startPOV`).
-    const { error } = await supabase.from('tours').upsert(this.tours.map(toDbRow));
-    if (error) {
-      console.error('Supabase save error:', error);
-      this.emitSaveError(error);
-      return { ok: false, reason: 'db', error };
+    const res = await this._upsertAll();
+    if (res.error) {
+      console.error('Supabase save error:', res.error);
+      this.emitSaveError(res.error);
+      return { ok: false, reason: 'db', error: res.error };
     }
     return { ok: true };
+  }
+
+  // Upserts all tours, only including known DB columns. PostgREST rejects
+  // payloads with keys that have no column (e.g. `startPOV` on old tables).
+  // If the table lacks the startPOV column yet, retry without it and tell the
+  // user to run the migration so the field can persist.
+  async _upsertAll() {
+    const stripStartPOV = () => {
+      const rows = this.tours.map(toDbRow);
+      rows.forEach((r) => delete r.startPOV);
+      return rows;
+    };
+    if (this._missingStartPOVColumn) {
+      return supabase.from('tours').upsert(stripStartPOV());
+    }
+    const res = await supabase.from('tours').upsert(this.tours.map(toDbRow));
+    if (res.error && /startPOV|column/i.test(String(res.error.message || res.error.code || ''))) {
+      this._missingStartPOVColumn = true;
+      this.emitSaveError(
+        'Your tours table is missing the "startPOV" column — Start POV won\'t persist until you run the migration in supabase_schema.sql.'
+      );
+      return supabase.from('tours').upsert(stripStartPOV());
+    }
+    return res;
   }
 
   emitSaveError(error) {
