@@ -10,6 +10,7 @@ import { QRCodeLinkModal } from './interactive/QRCodeLinkModal.js';
 import { VideoPopupModal } from './interactive/VideoPopupModal.js';
 import { VideoHUD } from './ui/VideoHUD.js';
 import { CalibrationOverlay } from './ui/CalibrationOverlay.js';
+import { PrebufferOverlay } from './ui/PrebufferOverlay.js';
 import { TourCatalogModal } from './ui/TourCatalogModal.js';
 import { AdminHub } from './ui/AdminHub.js';
 import { AuthModal } from './ui/AuthModal.js';
@@ -137,6 +138,9 @@ class WebXRExhibitApp {
       onOpenAdmin: () => this._openAdminGated(),
       onToggleCalib: () => this.calibrationOverlay.toggle()
     });
+
+    // 9b. No-pause intro: fun animation shown while the 360 file is pre-buffered
+    this.prebufferOverlay = new PrebufferOverlay(this.videoSphere);
 
     // Keyboard shortcut for Admin Hub: 'KeyA'
     window.addEventListener('keydown', async (e) => {

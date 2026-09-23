@@ -8,6 +8,59 @@ const ICON_VOL_HIGH = `<svg viewBox="0 0 24 24" width="17" height="17" fill="cur
 const ICON_VOL_MUTE = `<svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>`;
 const ICON_FULLSCREEN = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>`;
 
+// A <video> element cannot play YouTube/Vimeo page URLs (they never serve a
+// direct MP4). Detect those and route to the embed player instead.
+function detectEmbed(url) {
+  if (!url) return null;
+  const trimmed = String(url).trim();
+  const yt = trimmed.match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)*v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([\w-]{6,})/);
+  if (yt) {
+    return {
+      kind: 'youtube',
+      id: yt[1],
+      embedUrl: `https://www.youtube-nocookie.com/embed/${yt[1]}?autoplay=1&playsinline=1&rel=0&color=white`
+    };
+  }
+  const vm = trimmed.match(/(?:vimeo\.com\/(?!channels|groups|album)[\w/]*|player\.vimeo\.com\/(?:video|progressive_redirect)\/)(\d{6,})/);
+  if (vm) {
+    return {
+      kind: 'vimeo',
+      id: vm[1],
+      embedUrl: `https://player.vimeo.com/video/${vm[1]}?autoplay=1&title=0&byline=0&portrait=0`
+    };
+  }
+  return null; // assume a direct MP4 / streamable URL
+}
+
+// Embeds (iframes) can't feed a WebGL VideoTexture, so in VR headsets we show
+// this notice on the 3D screen instead of a black void.
+function createEmbedPlaceholderTexture(kind) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 576;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 1024, 576);
+  grad.addColorStop(0, '#0f172a');
+  grad.addColorStop(1, '#0a0f1d');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 1024, 576);
+  ctx.strokeStyle = 'rgba(245,158,11,0.6)';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.roundRect(24, 24, 976, 528, 28);
+  ctx.stroke();
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 64px Inter, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(kind === 'youtube' ? '▶ YouTube clip' : '▶ Vimeo clip', 512, 230);
+  ctx.font = '28px Inter, sans-serif';
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('Embedded players can only run in the desktop view.', 512, 310);
+  ctx.fillText('Exit VR and reopen this hotspot to watch it.', 512, 350);
+  return new THREE.CanvasTexture(canvas);
+}
+
 export class VideoPopupModal {
   constructor(scene, camera, xrControllerManager, inputManager, onResumeTour) {
     this.scene = scene;
@@ -51,6 +104,7 @@ export class VideoPopupModal {
 
         <div class="video-player-container" id="video-player-container">
           <video id="dom-popup-video" playsinline preload="auto" loop crossorigin="anonymous" class="popup-video-element"></video>
+          <iframe id="dom-popup-embed" allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowfullscreen title="Embedded video"></iframe>
 
           <div class="vp-seek-chip" id="vp-seek-chip" aria-live="polite"></div>
 
@@ -275,7 +329,11 @@ export class VideoPopupModal {
     }
     const chip = document.getElementById('vp-seek-chip');
     if (chip) chip.classList.remove('show');
+    // Leave embed mode: drop the iframe back to the <video> player.
+    const embedFrame = document.getElementById('dom-popup-embed');
+    if (embedFrame) embedFrame.removeAttribute('src');
     const container = document.getElementById('video-player-container');
+    if (container) container.classList.remove('embed-mode');
     if (container) container.classList.remove('controls-hidden', 'is-playing');
     const playIcon = document.getElementById('vp-play-icon');
     if (playIcon) playIcon.innerHTML = ICON_PLAY;
@@ -338,10 +396,18 @@ export class VideoPopupModal {
     const sourceElement = this.domVideo;
     if (!sourceElement) return;
 
-    this.videoTexture = new THREE.VideoTexture(sourceElement);
-    this.videoTexture.colorSpace = THREE.SRGBColorSpace;
-    this.videoTexture.minFilter = THREE.LinearFilter;
-    this.videoTexture.magFilter = THREE.LinearFilter;
+    // Single <video> element feeds BOTH the WebGL VideoTexture (VR screen)
+    // and the desktop HTML5 player, keeping picture+audio on one clock.
+    // YouTube/Vimeo embeds can't texture a WebGL surface, so VR gets a notice.
+    const embed = detectEmbed(videoData.sourceUrl);
+    this.videoTexture = embed
+      ? createEmbedPlaceholderTexture(embed.kind)
+      : new THREE.VideoTexture(sourceElement);
+    if (this.videoTexture && !embed) {
+      this.videoTexture.colorSpace = THREE.SRGBColorSpace;
+      this.videoTexture.minFilter = THREE.LinearFilter;
+      this.videoTexture.magFilter = THREE.LinearFilter;
+    }
 
     // Soft amber ambient halo behind the screen (matches the video-spotlight theme)
     const glowCanvas = document.createElement('canvas');
@@ -501,8 +567,27 @@ export class VideoPopupModal {
     document.getElementById('video-popup-desc').textContent =
       videoData.caption || this.activeData.subtitle || '';
 
-    if (this.domVideo) {
-      this.resetPlayerUI();
+    this.resetPlayerUI();
+
+    const embed = detectEmbed(videoData.sourceUrl);
+    if (embed) {
+      // YouTube / Vimeo: hand playback to the provider's embed player.
+      // It brings its own controls (the custom <video> ones can't drive a
+      // cross-origin iframe), so the container just enters embed-mode.
+      if (this.domVideo) {
+        this.domVideo.pause();
+        this.domVideo.removeAttribute('src');
+        this.domVideo.load();
+      }
+      const frame = document.getElementById('dom-popup-embed');
+      if (frame) {
+        const title = videoData.title || this.activeData.title || 'Embedded video';
+        frame.title = title;
+        frame.src = embed.embedUrl;
+      }
+      const container = document.getElementById('video-player-container');
+      if (container) container.classList.add('embed-mode');
+    } else if (this.domVideo) {
       this.domVideo.src = videoData.sourceUrl || '';
       this.domVideo.load();
       this.domVideo.play().catch(() => {
@@ -551,6 +636,10 @@ export class VideoPopupModal {
       this.domVideo.pause();
       this.domVideo.src = '';
     }
+    const embedFrame = document.getElementById('dom-popup-embed');
+    if (embedFrame) embedFrame.removeAttribute('src');
+    const playerContainer = document.getElementById('video-player-container');
+    if (playerContainer) playerContainer.classList.remove('embed-mode');
 
     if (this.domOverlay) {
       this.domOverlay.classList.remove('active');

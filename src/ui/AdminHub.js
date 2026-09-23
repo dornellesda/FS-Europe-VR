@@ -520,7 +520,7 @@ export class AdminHub {
           <div class="form-group">
             <label>Video Clip URL (MP4)</label>
             <input type="url" id="hs-video-url" placeholder="https://commondatastorage.googleapis.com/.../sample.mp4" value="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4" required />
-            <span class="field-hint">The video clip that will play inside the floating VR player when the visitor touches this hotspot.</span>
+            <span class="field-hint">Paste a YouTube or Vimeo link to embed it (plays on desktop), or a direct MP4 URL to also play inside VR headsets.</span>
           </div>
           <div class="form-group">
             <label>Video Caption / Context</label>

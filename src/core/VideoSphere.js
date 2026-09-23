@@ -23,8 +23,20 @@ export class VideoSphere {
       loading: [],
       ready: [],
       buffering: [],
+      prebuffer: [],
       error: []
     };
+
+    // No-pause buffering: before the first play, warm the browser cache with
+    // the WHOLE file and hold playback behind an intro until the front half
+    // of the file has fully buffered. State is reset per loadUrl/useProcedural.
+    this._prebufferEnabled = false;
+    this._prebufferState = null; // null | 'buffering' | 'done'
+    this._suppressTime = false;
+    this._prebufferPoll = null;
+    this._prebufferTimer = null;
+    this._lastBufferedPct = -1;
+    this._lastAdvanceAt = 0;
 
     // Hidden HTML5 video element. Kept rendered but invisible —
     // `display: none` lets some browsers (Safari/iOS notably) deprioritize or
@@ -83,6 +95,9 @@ export class VideoSphere {
   setupVideoEvents() {
     this.video.addEventListener('loadedmetadata', () => {
       this.duration = this.video.duration || this.duration;
+      // Only pre-buffer when the file has a real, seekable duration.
+      // Progressive streams (duration = Infinity) can't be fully cached.
+      this._prebufferEnabled = isFinite(this.video.duration) && this.video.duration > 0;
       this.emit('loadedmetadata', { duration: this.duration });
     });
 
@@ -93,13 +108,13 @@ export class VideoSphere {
     });
 
     this.video.addEventListener('timeupdate', () => {
-      if (this.isUsingRealVideo) {
+      if (this.isUsingRealVideo && !this._suppressTime) {
         this._emitTime();
       }
     });
 
     this.video.addEventListener('seeked', () => {
-      if (this.isUsingRealVideo) {
+      if (this.isUsingRealVideo && !this._suppressTime) {
         this._emitTime();
       }
     });
@@ -132,8 +147,9 @@ export class VideoSphere {
     this.video.addEventListener('canplay', () => {
       this._setBuffering(false);
       // Safety net: intent says "playing" but the element is parked (e.g. the
-      // initial play() raced the loader) — nudge it back.
-      if (this.isPlaying && this.video.paused && this.hasFirstFrame) {
+      // initial play() raced the loader) — nudge it back. Skipped while the
+      // no-pause pre-buffer is still warming the cache.
+      if (this.isPlaying && this.video.paused && this.hasFirstFrame && this._prebufferState !== 'buffering') {
         this.video.play().catch(() => {
           this._resumeOnGesture = true;
           this._attachGestureRetry();
@@ -152,6 +168,7 @@ export class VideoSphere {
       this.hasFirstFrame = false;
       this.isPlaying = false;
       this._setBuffering(false);
+      this._resetPrebuffer();
       this.material.map = this.canvasTexture;
       this.material.needsUpdate = true;
       this.emit('error', { message: 'Video failed to load — showing gallery fallback.' });
@@ -189,8 +206,135 @@ export class VideoSphere {
     this._startFrameSync();
 
     if (this._pendingPlay) {
+      // Warm the whole file first so the first play through never stalls;
+      // fall through to immediate playback for non-seekable/short sources.
+      if (this._canPrebuffer()) {
+        this._beginPrebuffer();
+      } else {
+        this._startPlayback();
+      }
+    }
+  }
+
+  _canPrebuffer() {
+    return this._prebufferEnabled &&
+      isFinite(this.video.duration) &&
+      this.video.duration > 8;
+  }
+
+  _bufferedUntil() {
+    const b = this.video.buffered;
+    if (!b || !b.length) return 0;
+    let until = 0;
+    for (let i = 0; i < b.length; i++) {
+      if (b.start(i) <= until + 0.5) {
+        until = Math.max(until, b.end(i));
+      } else {
+        break; // gap — only the front contiguous range matters
+      }
+    }
+    return until;
+  }
+
+  _beginPrebuffer() {
+    if (this._prebufferState || !this._sourceUrl) return;
+    this._prebufferState = 'buffering';
+    this._suppressTime = true;
+    this._lastBufferedPct = -1;
+    this._lastAdvanceAt = Date.now();
+    const d = this.video.duration;
+
+    this.emit('prebuffer', {
+      state: 'buffering',
+      bufferedUntil: this._bufferedUntil(),
+      duration: d
+    });
+
+    // Force the browser to download the ENTIRE file by seeking near the tail.
+    // Front ranges stream into the disk cache, so forward playback never has
+    // to wait. Harmless no-op on servers/modes that ignore the seek.
+    try {
+      const seekable = this.video.seekable;
+      if (isFinite(d) && d > 0 && seekable && seekable.length &&
+          seekable.end(seekable.length - 1) >= d - 4) {
+        this.video.currentTime = Math.max(0, d - 2);
+      }
+    } catch {}
+
+    this._prebufferPoll = setInterval(() => this._checkPrebuffer(), 300);
+
+    // Failsafe: never trap the user behind the intro forever. Start no later
+    // than ~15% of the clip length (clamped 5–20 s).
+    const waitMs = Math.max(5000, Math.min(20000, d * 1000 * 0.15));
+    this._prebufferTimer = setTimeout(() => this._finishPrebuffer(), waitMs);
+  }
+
+  _checkPrebuffer() {
+    if (this._prebufferState !== 'buffering') return;
+    const until = this._bufferedUntil();
+    const d = this.video.duration;
+    const pct = d > 0 ? (until / d) * 100 : 0;
+
+    // The whole playable range is in the cache — begin without a stall.
+    if (!isFinite(d) || pct >= 98) {
+      this._finishPrebuffer();
+      return;
+    }
+
+    const whole = Math.floor(pct);
+    if (whole > this._lastBufferedPct) {
+      this._lastBufferedPct = whole;
+      this._lastAdvanceAt = Date.now();
+      this.emit('prebuffer', { state: 'buffering', bufferedUntil: until, duration: d });
+    } else if (Date.now() - this._lastAdvanceAt > 6000) {
+      // Cache stalled (e.g. server without range support) — start anyway.
+      this._finishPrebuffer();
+    }
+  }
+
+  _finishPrebuffer() {
+    if (this._prebufferState !== 'buffering') return;
+    this._prebufferState = 'done';
+    this._clearPrebufferTimers();
+    this._suppressTime = false;
+    try {
+      this.video.currentTime = 0;
+    } catch {}
+    this.currentTime = 0;
+    this.emit('prebuffer', {
+      state: 'ready',
+      duration: this.video.duration || this.duration
+    });
+    if (this.isUsingRealVideo && this.hasFirstFrame) {
       this._startPlayback();
     }
+  }
+
+  // Public: the user chose to skip the warm-up (intro "Skip" or Play press).
+  skipPrebuffer() {
+    if (this._prebufferState === 'buffering') {
+      this._finishPrebuffer();
+    }
+  }
+
+  _clearPrebufferTimers() {
+    if (this._prebufferPoll) {
+      clearInterval(this._prebufferPoll);
+      this._prebufferPoll = null;
+    }
+    if (this._prebufferTimer) {
+      clearTimeout(this._prebufferTimer);
+      this._prebufferTimer = null;
+    }
+  }
+
+  _resetPrebuffer() {
+    this._clearPrebufferTimers();
+    this._prebufferEnabled = false;
+    this._prebufferState = null;
+    this._suppressTime = false;
+    this._lastBufferedPct = -1;
+    this._lastAdvanceAt = 0;
   }
 
   _startPlayback() {
@@ -253,7 +397,7 @@ export class VideoSphere {
     const onFrame = () => {
       this._frameSyncHandle = null;
       if (!this.isUsingRealVideo) return;
-      this._emitTime();
+      if (!this._suppressTime) this._emitTime();
       if (!this.video.paused && !this.video.ended) {
         this._frameSyncHandle = this.video.requestVideoFrameCallback(onFrame);
       }
@@ -292,6 +436,7 @@ export class VideoSphere {
     }
 
     this.emit('loading', { url });
+    this._resetPrebuffer();
 
     this.video.preload = 'auto';
     this.video.src = url;
@@ -308,6 +453,7 @@ export class VideoSphere {
     this._pendingPlay = false;
     this._resumeOnGesture = false;
     this._detachGestureRetry();
+    this._resetPrebuffer();
     this.hasFirstFrame = false;
     this.isBuffering = false;
     this.isUsingRealVideo = false;
@@ -328,6 +474,11 @@ export class VideoSphere {
 
   play() {
     this.isPlaying = true;
+    if (this._prebufferState === 'buffering') {
+      // User pressed play during the warm-up — start immediately.
+      this._finishPrebuffer();
+      return;
+    }
     if (this._sourceUrl && !this.hasFirstFrame) {
       // Source still loading — autostart the moment the first frame decodes.
       this._pendingPlay = true;
@@ -343,6 +494,7 @@ export class VideoSphere {
   }
 
   pause() {
+    if (this._prebufferState === 'buffering') return; // still warming the cache
     this.isPlaying = false;
     this._pendingPlay = false;
     this._resumeOnGesture = false;
@@ -355,6 +507,11 @@ export class VideoSphere {
   }
 
   togglePlay() {
+    if (this._prebufferState === 'buffering') {
+      // Play request during warm-up = skip the intro and play now.
+      this._finishPrebuffer();
+      return;
+    }
     if (this.isUsingRealVideo) {
       // HTMLVideoElement.paused is the authoritative source of truth,
       // so the toggle stays correct even while the video is buffering.
@@ -371,6 +528,7 @@ export class VideoSphere {
   }
 
   seek(seconds) {
+    if (this._prebufferState === 'buffering') return; // ignore during warm-up
     const clamped = Math.max(0, Math.min(seconds, this.duration));
     this.currentTime = clamped;
     if (this.isUsingRealVideo) {
