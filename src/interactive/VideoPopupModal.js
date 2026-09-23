@@ -23,7 +23,6 @@ export class VideoPopupModal {
     this.modalGroup.visible = false;
 
     this.interactiveMeshes = [];
-    this.videoElement = null;
     this.videoTexture = null;
     this.screenMesh = null;
 
@@ -51,7 +50,7 @@ export class VideoPopupModal {
         </div>
 
         <div class="video-player-container" id="video-player-container">
-          <video id="dom-popup-video" playsinline preload="metadata" class="popup-video-element"></video>
+          <video id="dom-popup-video" playsinline preload="auto" loop crossorigin="anonymous" class="popup-video-element"></video>
 
           <div class="vp-seek-chip" id="vp-seek-chip" aria-live="polite"></div>
 
@@ -333,16 +332,13 @@ export class VideoPopupModal {
   }
 
   build3DVideoScreen(videoData) {
-    // Create HTML video element for WebGL VideoTexture
-    this.videoElement = document.createElement('video');
-    this.videoElement.crossOrigin = 'anonymous';
-    this.videoElement.playsInline = true;
-    this.videoElement.src = videoData.sourceUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4';
-    this.videoElement.autoplay = true;
-    this.videoElement.loop = true;
-    this.videoElement.muted = false; // VR user triggered interaction so sound is permitted
+    // One single <video> element feeds BOTH the WebGL VideoTexture (VR screen)
+    // and the desktop HTML5 player. A single element means picture and audio
+    // share one clock, so they can never drift or double-audio during a popup.
+    const sourceElement = this.domVideo;
+    if (!sourceElement) return;
 
-    this.videoTexture = new THREE.VideoTexture(this.videoElement);
+    this.videoTexture = new THREE.VideoTexture(sourceElement);
     this.videoTexture.colorSpace = THREE.SRGBColorSpace;
     this.videoTexture.minFilter = THREE.LinearFilter;
     this.videoTexture.magFilter = THREE.LinearFilter;
@@ -495,8 +491,6 @@ export class VideoPopupModal {
     );
     closeTextPlane.position.set(0.64, 0.57, 0.045);
     this.modalGroup.add(closeTextPlane);
-
-    this.videoElement.play().catch(() => {});
   }
 
   showDesktopOverlay(videoData) {
@@ -525,13 +519,6 @@ export class VideoPopupModal {
       this.inputManager.removeInteractiveObject(mesh);
     });
     this.interactiveMeshes = [];
-
-    if (this.videoElement) {
-      this.videoElement.pause();
-      this.videoElement.removeAttribute('src');
-      this.videoElement.load();
-      this.videoElement = null;
-    }
 
     if (this.videoTexture) {
       this.videoTexture.dispose();

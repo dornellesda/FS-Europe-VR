@@ -122,6 +122,9 @@ export class VideoHUD {
             <span id="time-duration">02:00</span>
           </div>
 
+          <!-- Media loading / buffering status -->
+          <div class="media-status-pill" id="media-status-pill"></div>
+
           <div class="spacer"></div>
 
           <!-- Active Cue Status -->
@@ -311,6 +314,46 @@ export class VideoHUD {
     this.videoSphere.addEventListener('pause', () => {
       if (playIcon) playIcon.innerHTML = ICON_PLAY;
     });
+
+    // Media status pill: loading → first frame decoded → ready; stalled → buffering
+    this.videoSphere.addEventListener('loading', () => {
+      this._setMediaStatus('loading', 'Loading 360° video…');
+    });
+
+    this.videoSphere.addEventListener('ready', (data) => {
+      this._setMediaStatus(null);
+      if (data && data.duration) {
+        this.renderHotspotMarkers();
+        this.updateTimeline(this.videoSphere.currentTime, data.duration);
+      }
+    });
+
+    this.videoSphere.addEventListener('buffering', (d) => {
+      this._setMediaStatus(d.buffering ? 'buffering' : null, 'Buffering…');
+    });
+
+    this.videoSphere.addEventListener('error', () => {
+      this._setMediaStatus('error', 'Video unavailable — gallery mode', true);
+    });
+  }
+
+  _setMediaStatus(kind, text, autoHide = false) {
+    const pill = document.getElementById('media-status-pill');
+    if (!pill) return;
+    clearTimeout(this._statusTimer);
+    if (!kind) {
+      pill.classList.remove('visible', 'error');
+      pill.innerHTML = '';
+      return;
+    }
+    pill.classList.toggle('error', kind === 'error');
+    pill.innerHTML = kind === 'error'
+      ? text
+      : `<span class="media-status-spinner"></span><span>${text}</span>`;
+    pill.classList.add('visible');
+    if (autoHide) {
+      this._statusTimer = setTimeout(() => this._setMediaStatus(null), 6000);
+    }
   }
 
   updateTimeline(currentTime, duration) {

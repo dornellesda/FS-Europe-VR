@@ -442,6 +442,48 @@ body.in-vr-session #qr-modal-overlay {
   transform: translateX(-50%) translateY(0);
 }
 
+/* Media loading / buffering status pill */
+.media-status-pill {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #fbbf24;
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 20px rgba(245, 158, 11, 0.12);
+}
+
+.media-status-pill.visible {
+  display: inline-flex;
+}
+
+.media-status-pill.error {
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 20px rgba(239, 68, 68, 0.12);
+}
+
+.media-status-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(251, 191, 36, 0.3);
+  border-top-color: #fbbf24;
+  border-radius: 50%;
+  animation: media-status-spin 0.8s linear infinite;
+}
+
+@keyframes media-status-spin {
+  to { transform: rotate(360deg); }
+}
+
 .time-display {
   font-size: 14px;
   font-family: var(--font-family);
