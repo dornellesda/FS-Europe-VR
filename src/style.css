@@ -1853,6 +1853,12 @@ body.in-vr-session #qr-modal-overlay {
   border-color: #ef4444;
 }
 
+.btn-pill-action.edit:hover,
+.btn-pill-action.edit.active-edit {
+  background: rgba(34, 211, 238, 0.3);
+  border-color: #22d3ee;
+}
+
 .admin-form {
   flex: 1;
   overflow-y: auto;

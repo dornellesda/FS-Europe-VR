@@ -211,6 +211,16 @@ export class VideoSphere {
       if (this._canPrebuffer()) {
         this._beginPrebuffer();
       } else {
+        // Non-seekable source (moov at end → duration=Infinity): can't buffer
+        // ahead, so tell the UI why instead of silently starting a stalling
+        // video. Short files (<8s) skip the nag — they buffer instantly.
+        if (this._sourceUrl && this.hasFirstFrame && !this._prebufferEnabled) {
+          this.emit('prebuffer', {
+            state: 'unsupported',
+            reason: 'non-seekable',
+            duration: this.video.duration
+          });
+        }
         this._startPlayback();
       }
     }

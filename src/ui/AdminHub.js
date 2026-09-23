@@ -191,6 +191,7 @@ export class AdminHub {
     const activeTour = tourStore.getActiveTour();
 
     container.innerHTML = `
+      <div id="admin-pov-warning" style="display:none; margin-bottom:14px; padding:12px 16px; border-radius:12px; border:1px solid rgba(245,158,11,0.45); background:rgba(245,158,11,0.1); color:#fde68a; font-size:13px; line-height:1.6; font-family:'Inter', sans-serif;"></div>
       <div class="admin-two-col">
         <!-- Left: Tour List -->
         <div class="admin-list-panel">
@@ -290,6 +291,9 @@ export class AdminHub {
         </div>
       </div>
     `;
+
+    // Warn if the tours table lacks the startPOV column (Start POV won't persist).
+    this._checkStartPOVColumn();
 
     // Bind Tour List clicks
     container.querySelectorAll('.btn-pill-action.select').forEach((btn) => {
@@ -404,6 +408,8 @@ export class AdminHub {
 
   /* ---------------- TAB 2: HOTSPOTS (VIDEO POPUPS, LINKS, 3D) ---------------- */
   renderHotspotsTab(container) {
+    // Any stale edit state is dropped on re-render — the form starts fresh.
+    this._editingHotspotId = null;
     const activeTour = tourStore.getActiveTour();
     const hotspots = activeTour?.hotspots || [];
 
@@ -431,6 +437,7 @@ export class AdminHub {
                     <span class="item-sub">${typeLabel} • ${h.timeStart}s - ${h.timeEnd}s • Yaw: ${h.yaw}°</span>
                   </div>
                   <div class="item-actions">
+                    <button class="btn-pill-action edit edit-hotspot" data-hotspot-id="${h.id}" title="Edit Hotspot">✏️</button>
                     <button class="btn-pill-action delete delete-hotspot" data-hotspot-id="${h.id}" title="Delete Hotspot">🗑️</button>
                   </div>
                 </div>
@@ -442,7 +449,7 @@ export class AdminHub {
         <!-- Right: Hotspot Authoring Form -->
         <div class="admin-form-panel">
           <div class="panel-subhead">
-            <h3>Configure Interactive Hotspot</h3>
+            <h3 id="hs-form-heading">Configure Interactive Hotspot</h3>
             <div style="display: flex; gap: 8px;">
               <button type="button" class="btn-action-sm cyan" id="btn-admin-capture-view">
                 🎯 Capture Current View & Time
@@ -501,7 +508,7 @@ export class AdminHub {
             </div>
 
             <div class="form-actions-bar">
-              <button type="submit" class="btn-action-primary blue">✓ Add Hotspot to Tour</button>
+              <button type="submit" class="btn-action-primary blue" id="hs-submit-btn">✓ Add Hotspot to Tour</button>
             </div>
           </form>
         </div>
@@ -563,6 +570,30 @@ export class AdminHub {
 
     typeSelect?.addEventListener('change', updateDynamicFields);
     updateDynamicFields();
+    this._typeSelect = typeSelect;
+    this._updateDynamicFields = updateDynamicFields;
+
+    // "+ Add Hotspot" resets the form back to create mode.
+    document.getElementById('btn-new-hotspot-form')?.addEventListener('click', () => {
+      this._editingHotspotId = null;
+      this._resetHotspotFormUI();
+      const form = document.getElementById('form-hotspot-author');
+      if (form) form.reset();
+      if (typeSelect) {
+        typeSelect.value = 'video-popup';
+        updateDynamicFields();
+      }
+      this._toast('Adding a new hotspot.');
+    });
+
+    // Edit Hotspot buttons: load the existing hotspot into the form and save
+    // through tourStore.updateHotspot so edits persist to the database.
+    container.querySelectorAll('.edit-hotspot').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._startEditHotspot(btn.getAttribute('data-hotspot-id'));
+      });
+    });
 
     // "Capture Current View & Time" button
     document.getElementById('btn-admin-capture-view')?.addEventListener('click', () => {
@@ -710,17 +741,98 @@ export class AdminHub {
         };
       }
 
-      const res = await tourStore.addHotspot(activeTour.id, newHotspot);
+      const wasEditing = !!this._editingHotspotId;
+      const res = wasEditing
+        ? await tourStore.updateHotspot(activeTour.id, this._editingHotspotId, newHotspot)
+        : await tourStore.addHotspot(activeTour.id, newHotspot);
+      this._editingHotspotId = null;
       if (res.ok) {
-        this._toast('Hotspot created & saved to database ✔');
+        this._toast(wasEditing ? 'Hotspot updated & saved to database ✔' : 'Hotspot created & saved to database ✔');
       } else {
-        this._toast(`Hotspot created locally but NOT saved — ${res.error?.message || 'are you signed in?'}`, true);
+        this._toast(`${wasEditing ? 'Update' : 'Create'} caused a local change but NOT saved — ${res.error?.message || 'are you signed in?'}`, true);
       }
       if (this.onTourChanged) {
         this.onTourChanged(tourStore.getActiveTour());
       }
       this.renderTabBody();
     });
+  }
+
+  async _checkStartPOVColumn() {
+    const host = document.getElementById('admin-pov-warning');
+    if (!host || !supabase) return;
+    if (this._povColumnCache === undefined) {
+      const { error } = await supabase.from('tours').select('startPOV').limit(1);
+      this._povColumnCache = !!error && /column|startPOV|schema/i.test(String(error.message || error.code || ''));
+    }
+    if (this._povColumnCache) {
+      host.style.display = 'block';
+      host.innerHTML =
+        '<strong>⚠️ Start POV isn\'t saving.</strong> Your <code>tours</code> table is missing the ' +
+        '<code>startPOV</code> column. Run this once in <strong>Supabase → SQL Editor</strong>:<br>' +
+        '<code style="background:rgba(0,0,0,0.35); padding:2px 6px; border-radius:4px; display:inline-block; margin-top:6px;">' +
+        'alter table public.tours add column if not exists "startPOV" jsonb;</code>';
+    }
+  }
+
+  _resetHotspotFormUI() {
+    const heading = document.getElementById('hs-form-heading');
+    if (heading) heading.textContent = 'Configure Interactive Hotspot';
+    const submitBtn = document.getElementById('hs-submit-btn');
+    if (submitBtn) submitBtn.innerHTML = '✓ Add Hotspot to Tour';
+    const form = document.getElementById('form-hotspot-author');
+    if (form) form.classList.remove('editing-hotspot');
+  }
+
+  _startEditHotspot(id) {
+    const tour = tourStore.getActiveTour();
+    const hs = tour?.hotspots?.find((h) => h.id === id);
+    if (!hs) return;
+    this._editingHotspotId = id;
+
+    const heading = document.getElementById('hs-form-heading');
+    if (heading) heading.textContent = `Edit Hotspot — ${hs.title || 'untitled'}`;
+    const submitBtn = document.getElementById('hs-submit-btn');
+    if (submitBtn) submitBtn.innerHTML = '💾 Save Hotspot Changes';
+    const form = document.getElementById('form-hotspot-author');
+    if (form) form.classList.add('editing-hotspot');
+
+    // Highlight the row being edited.
+    document.querySelectorAll('.edit-hotspot').forEach((b) => {
+      b.classList.toggle('active-edit', b.getAttribute('data-hotspot-id') === id);
+    });
+
+    const setVal = (elementId, value) => {
+      const el = document.getElementById(elementId);
+      if (el) el.value = value ?? '';
+    };
+
+    // Match the type (rebuilds the dynamic sub-section), then fill everything.
+    if (this._typeSelect) {
+      this._typeSelect.value = ['video-popup', 'qr-code', 'interactive-exhibit'].includes(hs.type)
+        ? hs.type : 'video-popup';
+      if (this._updateDynamicFields) this._updateDynamicFields();
+    }
+    setVal('hs-title', hs.title);
+    setVal('hs-subtitle', hs.subtitle);
+    setVal('hs-time-start', hs.timeStart);
+    setVal('hs-time-end', hs.timeEnd);
+    setVal('hs-yaw', hs.yaw);
+    setVal('hs-pitch', hs.pitch);
+
+    if (hs.type === 'video-popup') {
+      setVal('hs-video-url', hs.videoData?.sourceUrl);
+      setVal('hs-video-caption', hs.videoData?.caption);
+    } else if (hs.type === 'qr-code') {
+      setVal('hs-link-url', hs.qrData?.url);
+      setVal('hs-link-display', hs.qrData?.displayUrl);
+      setVal('hs-link-desc', hs.qrData?.description);
+    } else {
+      setVal('hs-model-preset', hs.exhibitData?.modelType || 'astrolabe');
+      setVal('hs-exhibit-desc', hs.exhibitData?.description);
+    }
+
+    this._toast(`Editing "${hs.title}" — make your changes, then press Save.`);
   }
 
   /* ---------------- TAB 4: TEAM ACCESS ---------------- */

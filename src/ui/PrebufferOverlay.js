@@ -30,6 +30,11 @@ export class PrebufferOverlay {
     this._percentEl = this.el.querySelector('#pb-pct');
     this._ringEl = this.el.querySelector('#pb-ring');
     this._skipBtn = this.el.querySelector('#btn-skip-prebuffer');
+    this._titleEl = this.el.querySelector('.pb-title');
+    this._subEl = this.el.querySelector('.pb-sub');
+    this._normalTitle = this._titleEl?.textContent;
+    this._normalSub = this._subEl?.innerHTML;
+    this._unsupportedShown = false;
 
     this._bind();
   }
@@ -41,6 +46,7 @@ export class PrebufferOverlay {
 
     // Playback actually started (non-prebuffer path or after skip) — dismiss.
     this.videoSphere.addEventListener('play', () => {
+      if (this._unsupportedShown) return; // keep the optimization tip readable
       if (this.videoSphere.hasFirstFrame && this.videoSphere.isUsingRealVideo) {
         this.hide(0);
       }
@@ -64,6 +70,10 @@ export class PrebufferOverlay {
       this.hide();
       return;
     }
+    if (d.state === 'unsupported') {
+      this._showUnsupportedTip();
+      return;
+    }
     const pct = d.duration > 0
       ? Math.min(99, Math.max(0, Math.round((d.bufferedUntil / d.duration) * 100)))
       : 0;
@@ -73,9 +83,27 @@ export class PrebufferOverlay {
     }
   }
 
+  _showUnsupportedTip() {
+    this._unsupportedShown = true;
+    this.el.classList.add('pb-warn');
+    if (this._titleEl) this._titleEl.textContent = "Video isn't streaming-optimized";
+    if (this._subEl) this._subEl.innerHTML =
+      "This file's metadata sits at the very end, so the browser can't buffer ahead and starts in short spurts. Re-encode it with <code>+faststart</code> (see the export tab).";
+    if (this._percentEl) this._percentEl.textContent = '∞';
+    if (this._skipBtn) this._skipBtn.textContent = 'Got it';
+    clearTimeout(this._warnTimer);
+    this._warnTimer = setTimeout(() => this.hide(0), 6500);
+  }
+
   show() {
+    this._unsupportedShown = false;
+    this.el.classList.remove('pb-warn');
     if (this._percentEl) this._percentEl.textContent = '0%';
     if (this._ringEl) this._ringEl.style.setProperty('--pb-progress', '0%');
+    if (this._titleEl && this._normalTitle) this._titleEl.textContent = this._normalTitle;
+    if (this._subEl && this._normalSub) this._subEl.innerHTML = this._normalSub;
+    if (this._skipBtn) this._skipBtn.textContent = '▶ Skip & Start Now';
+    if (this._warnTimer) clearTimeout(this._warnTimer);
     this.el.classList.add('active');
   }
 
