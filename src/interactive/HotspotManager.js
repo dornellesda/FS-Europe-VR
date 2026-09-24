@@ -106,21 +106,22 @@ export class HotspotManager {
     ctx.imageSmoothingQuality = 'high';
 
     // -------------------------------------------------------------
-    // 1. FLAT ICON CHIP (lens ring + tonal disc + flat glyph)
+    // 1. FLAT ICON CHIP (lens ring + tonal disc + flat glyph) — large,
+    //    self-contained marker with no stem to the hover card.
     // -------------------------------------------------------------
     const cx = 512;
-    const cy = 116;
-    const R = 62;
+    const cy = 112;
+    const R = 74;
 
     // Soft distant halo ring
     ctx.strokeStyle = `rgba(${rgb}, 0.18)`;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, R + 20, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R + 24, 0, Math.PI * 2);
     ctx.stroke();
 
     // Flat tonal disc
-    const disc = ctx.createRadialGradient(cx - 16, cy - 18, 4, cx, cy, R);
+    const disc = ctx.createRadialGradient(cx - 20, cy - 22, 4, cx, cy, R);
     disc.addColorStop(0, `rgba(${rgb}, 0.30)`);
     disc.addColorStop(1, `rgba(${rgb}, 0.07)`);
     ctx.fillStyle = disc;
@@ -139,29 +140,19 @@ export class HotspotManager {
     ctx.strokeStyle = `rgba(${rgb}, 0.35)`;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(cx, cy, R - 9, 0, Math.PI * 2);
+    ctx.arc(cx, cy, R - 11, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Flat stroke glyph
+    // Flat stroke glyph (scaled to match the larger chip)
     ctx.strokeStyle = accent;
     ctx.fillStyle = accent;
     ctx.lineWidth = 5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    this.drawFlatIcon(ctx, theme.iconType, cx, cy);
+    this.drawFlatIcon(ctx, theme.iconType, cx, cy, 1.45);
 
     // -------------------------------------------------------------
-    // 2. STEM LINKING CHIP TO PILL
-    // -------------------------------------------------------------
-    ctx.strokeStyle = `rgba(${rgb}, 0.4)`;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy + R);
-    ctx.lineTo(cx, 244);
-    ctx.stroke();
-
-    // -------------------------------------------------------------
-    // 3. FLAT LABEL PILL (HUD badge style)
+    // 2. FLAT LABEL PILL (HUD badge style)
     // -------------------------------------------------------------
     const pillY = 252;
     const pillH = 52;
@@ -190,7 +181,7 @@ export class HotspotManager {
     this.drawSpacedText(ctx, theme.badgeText, pillX + 40, pillY + pillH / 2, 3);
 
     // -------------------------------------------------------------
-    // 4. FLAT TITLE PANEL (revealed on hover)
+    // 3. FLAT TITLE PANEL (revealed on hover)
     // -------------------------------------------------------------
     const cardX = 82;
     const cardY = 328;
@@ -239,39 +230,41 @@ export class HotspotManager {
     return texture;
   }
 
-  drawFlatIcon(ctx, type, cx, cy) {
+  drawFlatIcon(ctx, type, cx, cy, scale = 1) {
     if (type === 'exhibit') {
+      const arm = 24 * scale;
       ctx.beginPath();
-      ctx.moveTo(cx, cy - 24);
-      ctx.lineTo(cx + 24, cy);
-      ctx.lineTo(cx, cy + 24);
-      ctx.lineTo(cx - 24, cy);
+      ctx.moveTo(cx, cy - arm);
+      ctx.lineTo(cx + arm, cy);
+      ctx.lineTo(cx, cy + arm);
+      ctx.lineTo(cx - arm, cy);
       ctx.closePath();
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(cx - 12, cy);
-      ctx.lineTo(cx + 12, cy);
+      ctx.moveTo(cx - arm * 0.5, cy);
+      ctx.lineTo(cx + arm * 0.5, cy);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(cx, cy, 4.5, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 4.5 * scale, 0, Math.PI * 2);
       ctx.fill();
     } else if (type === 'video') {
+      const rad = 26 * scale;
       ctx.beginPath();
-      ctx.arc(cx, cy, 26, 0, Math.PI * 2);
+      ctx.arc(cx, cy, rad, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(cx - 9, cy - 13);
-      ctx.lineTo(cx - 9, cy + 13);
-      ctx.lineTo(cx + 15, cy);
+      ctx.moveTo(cx - 9 * scale, cy - 13 * scale);
+      ctx.lineTo(cx - 9 * scale, cy + 13 * scale);
+      ctx.lineTo(cx + 15 * scale, cy);
       ctx.closePath();
       ctx.fill();
     } else {
-      const s = 26;
-      this.drawRoundedRect(ctx, cx - s, cy - s, s * 2, s * 2, 8);
+      const s = 26 * scale;
+      this.drawRoundedRect(ctx, cx - s, cy - s, s * 2, s * 2, 8 * scale);
       ctx.stroke();
-      ctx.fillRect(cx - s, cy - s, 9, 9);
-      ctx.fillRect(cx + s - 9, cy - s, 9, 9);
-      ctx.fillRect(cx - s, cy + s - 9, 9, 9);
+      ctx.fillRect(cx - s, cy - s, 9 * scale, 9 * scale);
+      ctx.fillRect(cx + s - 9 * scale, cy - s, 9 * scale, 9 * scale);
+      ctx.fillRect(cx - s, cy + s - 9 * scale, 9 * scale, 9 * scale);
     }
   }
 

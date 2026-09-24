@@ -32,6 +32,8 @@ export class VideoSphere {
     // of the file has fully buffered. State is reset per loadUrl/useProcedural.
     this._prebufferEnabled = false;
     this._prebufferState = null; // null | 'buffering' | 'done'
+    this._prebufferMode = 'seek'; // 'seek' | 'fetch' — how progress is driven
+    this._fetchReader = null;
     this._suppressTime = false;
     this._prebufferPoll = null;
     this._prebufferTimer = null;
@@ -252,24 +254,20 @@ export class VideoSphere {
     this._suppressTime = true;
     this._lastBufferedPct = -1;
     this._lastAdvanceAt = Date.now();
+    this._prebufferMode = 'seek';
     const d = this.video.duration;
 
     this.emit('prebuffer', {
       state: 'buffering',
-      bufferedUntil: this._bufferedUntil(),
+      bufferedUntil: 0,
       duration: d
     });
 
-    // Force the browser to download the ENTIRE file by seeking near the tail.
-    // Front ranges stream into the disk cache, so forward playback never has
-    // to wait. Harmless no-op on servers/modes that ignore the seek.
-    try {
-      const seekable = this.video.seekable;
-      if (isFinite(d) && d > 0 && seekable && seekable.length &&
-          seekable.end(seekable.length - 1) >= d - 4) {
-        this.video.currentTime = Math.max(0, d - 2);
-      }
-    } catch {}
+    // Preferred warm-up: stream the whole file through fetch() so the browser
+    // HTTP cache holds every byte and the intro ring fills with honest byte
+    // progress. Falls back to the tail-seek trick when fetch is unavailable
+    // (no Content-Length, CORS-blocked, non-OK response).
+    this._startFetchPrebuffer();
 
     this._prebufferPoll = setInterval(() => this._checkPrebuffer(), 300);
 
@@ -279,8 +277,107 @@ export class VideoSphere {
     this._prebufferTimer = setTimeout(() => this._finishPrebuffer(), waitMs);
   }
 
+  /**
+   * Stream the source over fetch() for cache warm-up. Reading (and discarding)
+   * the body walks the whole file through the browser's HTTP cache without
+   * holding it in JS memory, and real byte counts drive the intro ring.
+   * Returns true when streaming progress is driving the overlay.
+   */
+  _startFetchPrebuffer() {
+    const url = this._sourceUrl;
+    if (!url || typeof fetch !== 'function') return;
+
+    // blob: object URLs are already fully local — nothing to warm in the
+    // network cache, so skip straight to playback.
+    if (url.startsWith('blob:')) {
+      this._finishPrebuffer();
+      return;
+    }
+
+    fetch(url).then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const total = parseInt(res.headers.get('Content-Length') || '', 10);
+      const body = res.body;
+      if (!body || typeof body.getReader !== 'function' || !Number.isFinite(total) || total <= 0) {
+        throw new Error('No streamed progress available');
+      }
+      this._prebufferMode = 'fetch';
+      this._fetchReader = body.getReader();
+      let got = 0;
+      const pump = () => {
+        const reader = this._fetchReader;
+        if (!reader || this._prebufferState !== 'buffering') return;
+        return reader.read().then(({ done, value }) => {
+          if (this._prebufferState !== 'buffering') return;
+          if (done) {
+            got = total;
+            this._reportFetch(got, total);
+            this._fetchReader = null;
+            this._finishPrebuffer();
+            return;
+          }
+          got += value ? value.length : 0;
+          this._reportFetch(got, total);
+          return pump();
+        });
+      };
+      return pump();
+    }).catch(() => {
+      // Fetch warm-up isn't available (CORS / no range / network hiccup) —
+      // fall back to the media-element tail-seek approach.
+      this._fallbackToSeekPrebuffer();
+    });
+  }
+
+  _reportFetch(got, total) {
+    if (this._prebufferState !== 'buffering') return;
+    const frac = Math.min(1, got / total);
+    const whole = Math.floor(frac * 100);
+    const d = isFinite(this.video.duration) ? this.video.duration : this.duration;
+    this._lastAdvanceAt = Date.now();
+    if (whole === this._lastBufferedPct) return; // throttle to whole percents
+    this._lastBufferedPct = whole;
+    this.emit('prebuffer', {
+      state: 'buffering',
+      bufferedUntil: frac * d,
+      duration: d
+    });
+  }
+
+  _fallbackToSeekPrebuffer() {
+    this._fetchReader = null;
+    if (this._prebufferState !== 'buffering') return;
+    this._prebufferMode = 'seek';
+    this._lastAdvanceAt = Date.now();
+    this._lastBufferedPct = -1;
+
+    // Force the browser to download the ENTIRE file by seeking near the tail.
+    // Front ranges stream into the disk cache, so forward playback never has
+    // to wait. Harmless no-op on servers/modes that ignore the seek.
+    const d = this.video.duration;
+    try {
+      const seekable = this.video.seekable;
+      if (isFinite(d) && d > 0 && seekable && seekable.length &&
+          seekable.end(seekable.length - 1) >= d - 4) {
+        this.video.currentTime = Math.max(0, d - 2);
+      }
+    } catch {}
+  }
+
   _checkPrebuffer() {
     if (this._prebufferState !== 'buffering') return;
+
+    // fetch() streaming drives the progress now — video.buffered is still
+    // tiny (the element hasn't been seeked yet), so don't report it.
+    if (this._prebufferMode === 'fetch') {
+      if (Date.now() - this._lastAdvanceAt > 6000 && this._lastBufferedPct < 5) {
+        // The stream stalled before making progress — start anyway rather
+        // than hiding behind the intro forever.
+        this._finishPrebuffer();
+      }
+      return;
+    }
+
     const until = this._bufferedUntil();
     const d = this.video.duration;
     const pct = d > 0 ? (until / d) * 100 : 0;
@@ -328,6 +425,10 @@ export class VideoSphere {
   }
 
   _clearPrebufferTimers() {
+    if (this._fetchReader) {
+      try { this._fetchReader.cancel(); } catch {}
+      this._fetchReader = null;
+    }
     if (this._prebufferPoll) {
       clearInterval(this._prebufferPoll);
       this._prebufferPoll = null;
@@ -342,6 +443,7 @@ export class VideoSphere {
     this._clearPrebufferTimers();
     this._prebufferEnabled = false;
     this._prebufferState = null;
+    this._prebufferMode = 'seek';
     this._suppressTime = false;
     this._lastBufferedPct = -1;
     this._lastAdvanceAt = 0;
