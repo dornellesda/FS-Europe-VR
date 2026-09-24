@@ -248,11 +248,11 @@ export class AdminHub {
             <div class="form-row">
               <div class="form-group">
                 <label>Start POV Yaw (deg)</label>
-                <input type="number" id="tour-field-start-yaw" value="${activeTour?.startPOV?.yaw ?? ''}" step="1" placeholder="0 = forward" />
+                <input type="number" id="tour-field-start-yaw" value="${activeTour?.startPOV?.yaw ?? ''}" step="0.1" placeholder="0 = forward" />
               </div>
               <div class="form-group">
                 <label>Start POV Pitch (deg)</label>
-                <input type="number" id="tour-field-start-pitch" value="${activeTour?.startPOV?.pitch ?? ''}" step="1" placeholder="0 = eye level" />
+                <input type="number" id="tour-field-start-pitch" value="${activeTour?.startPOV?.pitch ?? ''}" step="0.1" placeholder="0 = eye level" />
               </div>
               <div class="form-group">
                 <label>&nbsp;</label>
@@ -494,11 +494,11 @@ export class AdminHub {
               </div>
               <div class="form-group">
                 <label>Yaw (Angle: -180° to 180°)</label>
-                <input type="number" id="hs-yaw" value="0" step="1" required />
+                <input type="number" id="hs-yaw" value="0" step="0.1" required />
               </div>
               <div class="form-group">
                 <label>Pitch (Height: -90° to 90°)</label>
-                <input type="number" id="hs-pitch" value="0" step="1" required />
+                <input type="number" id="hs-pitch" value="0" step="0.1" required />
               </div>
             </div>
 
