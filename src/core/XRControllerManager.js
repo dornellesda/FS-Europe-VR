@@ -121,7 +121,10 @@ export class XRControllerManager {
     this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
     this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
 
-    const intersects = this.raycaster.intersectObjects(this.interactiveObjects, true);
+    const intersects = this.raycaster.intersectObjects(
+      this.interactiveObjects.filter((o) => o.visible !== false),
+      true
+    );
     return intersects.length > 0 ? intersects[0] : null;
   }
 

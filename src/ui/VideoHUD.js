@@ -74,6 +74,16 @@ export class VideoHUD {
         </div>
       </div>
 
+      <!-- Transient status toasts — buffering and the active hotspot cue live
+           here (out of the player controls) so they don't crowd the scrubber. -->
+      <div class="hud-status-stack" id="hud-status-stack">
+        <div class="media-status-pill" id="media-status-pill"></div>
+        <div class="active-cue-pill" id="active-cue-pill" style="display: none;">
+          <span class="cue-dot"></span>
+          <span id="cue-text">Exhibit Active</span>
+        </div>
+      </div>
+
       <!-- Drag and Drop Overlay Notice -->
       <div class="drag-drop-hint" id="drag-drop-hint">
         <div class="hint-box">
@@ -122,16 +132,7 @@ export class VideoHUD {
             <span id="time-duration">02:00</span>
           </div>
 
-          <!-- Media loading / buffering status -->
-          <div class="media-status-pill" id="media-status-pill"></div>
-
           <div class="spacer"></div>
-
-          <!-- Active Cue Status -->
-          <div class="active-cue-pill" id="active-cue-pill" style="display: none;">
-            <span class="cue-dot"></span>
-            <span id="cue-text">Exhibit Active</span>
-          </div>
 
           <!-- Volume Controls -->
           <div class="volume-container">

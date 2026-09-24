@@ -12,6 +12,25 @@ export class HotspotManager {
     this.parentGroup.name = 'hotspots-parent-group';
     this.scene.add(this.parentGroup);
 
+    // Spatial presence: a hotspot stays anchored to its world position and
+    // fades out as the viewer turns away from it (view cone) or moves away
+    // from it / walks into it (distance). Time in/out (syncWithTime) still
+    // gates the window; this governs in-view visibility on top.
+    this.spatial = {
+      viewFullDeg: 38,      // fully visible within ±38° of the camera axis
+      viewHiddenDeg: 55,    // fully hidden past ±55° (leaves the ~54° screen edge)
+      minDistFull: 1.6,     // fully visible at ≥1.6 m from the anchor
+      minDistHidden: 1.0,   // fully hidden closer than 1.0 m (user walked into it)
+      maxDistFull: 6.2,     // fully visible up to 6.2 m away
+      maxDistHidden: 8.5,   // fully hidden beyond 8.5 m
+      interactionThreshold: 0.15 // below this spatial factor, no click/hover
+    };
+
+    // Scratch vectors reused every frame — no per-frame allocations.
+    this._vCamPos = new THREE.Vector3();
+    this._vCamDir = new THREE.Vector3();
+    this._vToHotspot = new THREE.Vector3();
+
     this.createHotspots();
   }
 
@@ -293,6 +312,9 @@ export class HotspotManager {
       hotspotGroup.userData.currentOpacity = 0.95;
       hotspotGroup.userData.targetOpacity = 0.95;
       hotspotGroup.userData.targetCardOpacity = 0.0;
+      hotspotGroup.userData.spatialFactorSmooth = 1.0;
+      hotspotGroup.userData.spatialFactor = 1.0;
+      hotspotGroup.userData.spatialCfg = this._spatialConfig(data);
 
       // Convert spherical angles to 3D Cartesian coordinates
       const pos = this.sphericalToCartesian(data.yaw, data.pitch, data.distance || 3.8);
@@ -397,6 +419,62 @@ export class HotspotManager {
   }
 
   /**
+   * Per-hotspot spatial tuning. Defaults match the shared `this.spatial`
+   * presets; an admin can override any value through hotspot data, e.g.
+   * { spatial: { enabled: false } } to keep one always available, or
+   * { spatial: { viewFullDeg: 20, viewHiddenDeg: 40 } } for a tighter cone.
+   */
+  _spatialConfig(data) {
+    const s = (data && data.spatial) || {};
+    return {
+      enabled: s.enabled !== false,
+      fullConeDeg: s.fullConeDeg ?? this.spatial.viewFullDeg,
+      hideConeDeg: s.hideConeDeg ?? this.spatial.viewHiddenDeg,
+      minFullDist: s.minFullDist ?? this.spatial.minDistFull,
+      minHideDist: s.minHideDist ?? this.spatial.minDistHidden,
+      maxFullDist: s.maxFullDist ?? this.spatial.maxDistFull,
+      maxHideDist: s.maxHideDist ?? this.spatial.maxDistHidden
+    };
+  }
+
+  /**
+   * 0..1 how present the hotspot is right now: 1 = dead ahead at a healthy
+   * distance, 0 = fully culled. Combines the view-cone (angular) check with
+   * a distance check so the marker truly sticks to its spot and vanishes
+   * when the viewer turns away or moves out of range.
+   */
+  _computeSpatialFactor(position, cfg) {
+    if (cfg.enabled === false) return 1;
+
+    this._vToHotspot.subVectors(position, this._vCamPos);
+    const dist = this._vToHotspot.length();
+    this._vToHotspot.normalize();
+
+    // Angular culling: how far the hotspot sits from the camera's view axis.
+    const cosAngle = this._vCamDir.dot(this._vToHotspot);
+    const angleDeg = THREE.MathUtils.radToDeg(Math.acos(Math.max(-1, Math.min(1, cosAngle))));
+    let angleFactor = 1;
+    if (angleDeg >= cfg.hideConeDeg) {
+      angleFactor = 0;
+    } else if (angleDeg > cfg.fullConeDeg) {
+      angleFactor = 1 - (angleDeg - cfg.fullConeDeg) / (cfg.hideConeDeg - cfg.fullConeDeg);
+    }
+
+    // Distance culling: fade when the viewer walks in or wanders far off
+    // (relevant in VR room-scale; desktop keeps a constant 3.8 m radius).
+    let distFactor = 1;
+    if (dist <= cfg.minHideDist || dist >= cfg.maxHideDist) {
+      distFactor = 0;
+    } else if (dist < cfg.minFullDist) {
+      distFactor = (dist - cfg.minHideDist) / (cfg.minFullDist - cfg.minHideDist);
+    } else if (dist > cfg.maxFullDist) {
+      distFactor = 1 - (dist - cfg.maxFullDist) / (cfg.maxHideDist - cfg.maxFullDist);
+    }
+
+    return Math.max(0, Math.min(1, Math.min(angleFactor, distFactor)));
+  }
+
+  /**
    * Rotates all hotspot anchor positions around the vertical (Y) axis.
    * Used in VR to bring startPOV into the user's initial view.
    * Billboarding is untouched (groups still track the camera), so the
@@ -452,33 +530,56 @@ export class HotspotManager {
     const springDamping = 16;
     const clampedDelta = Math.min(delta, 0.05);
 
-    this.hotspots.forEach(({ group, orbMaterial, cardMaterial }) => {
-      if (group.visible) {
-        // 1. Precise Camera Billboarding
-        group.quaternion.copy(this.camera.quaternion);
+    // Camera pose for spatial culling (desktop orbit + VR headset alike)
+    this.camera.getWorldPosition(this._vCamPos);
+    this.camera.getWorldDirection(this._vCamDir);
 
-        // 2. Damped Spring Physics for Hover Elevation
-        const currentScale = group.userData.currentScale || 1.0;
-        const targetScale = group.userData.targetScale || 1.0;
-        let vel = group.userData.velocity || 0;
-
-        const force = (targetScale - currentScale) * springStiffness;
-        vel += force * clampedDelta;
-        vel *= Math.max(0, 1 - springDamping * clampedDelta);
-        const newScale = currentScale + vel * clampedDelta;
-
-        group.userData.currentScale = newScale;
-        group.userData.velocity = vel;
-        group.scale.set(newScale, newScale, newScale);
-
-        // 3. Smooth Opacity Modulation (Organic light glow instead of size throb)
-        const baseOpacity = group.userData.targetOpacity || 0.95;
-        orbMaterial.opacity = Math.max(0.88, Math.min(1.0, baseOpacity + ambientLuminance));
-        
-        // 4. Smoothly animate Card reveal on hover
-        const targetCardOpacity = group.userData.targetCardOpacity || 0.0;
-        cardMaterial.opacity += (targetCardOpacity - cardMaterial.opacity) * 12 * clampedDelta;
+    this.hotspots.forEach(({ group, orbMaterial, cardMaterial, hitMesh, data }) => {
+      if (!group.visible) {
+        // Outside its time in/out window — fully hidden and not interactive.
+        hitMesh.visible = false;
+        orbMaterial.opacity = 0;
+        cardMaterial.opacity = 0;
+        return;
       }
+
+      // 1. Precise Camera Billboarding
+      group.quaternion.copy(this.camera.quaternion);
+
+      // 2. Damped Spring Physics for Hover Elevation
+      const currentScale = group.userData.currentScale || 1.0;
+      const targetScale = group.userData.targetScale || 1.0;
+      let vel = group.userData.velocity || 0;
+
+      const force = (targetScale - currentScale) * springStiffness;
+      vel += force * clampedDelta;
+      vel *= Math.max(0, 1 - springDamping * clampedDelta);
+      const newScale = currentScale + vel * clampedDelta;
+
+      group.userData.currentScale = newScale;
+      group.userData.velocity = vel;
+      group.scale.set(newScale, newScale, newScale);
+
+      // 3. Spatial presence — fade out as the viewer turns away or moves
+      //    away, so the marker sticks to its spot instead of following the
+      //    camera around. Smoothly lerped to avoid popping.
+      const factor = this._computeSpatialFactor(group.position, group.userData.spatialCfg);
+      const smooth = group.userData.spatialFactorSmooth || 1.0;
+      const newSmooth = smooth + (factor - smooth) * Math.min(1, 10 * clampedDelta);
+      group.userData.spatialFactorSmooth = newSmooth;
+      group.userData.spatialFactor = newSmooth;
+
+      // Culled hotspots drop out of raycasting entirely.
+      hitMesh.visible = newSmooth > this.spatial.interactionThreshold;
+
+      // 4. Smooth Opacity Modulation (Organic light glow instead of size throb)
+      const baseOpacity = group.userData.targetOpacity || 0.95;
+      const visibleOpacity = Math.max(0.88, Math.min(1.0, baseOpacity + ambientLuminance));
+      orbMaterial.opacity = visibleOpacity * newSmooth;
+
+      // 5. Smoothly animate Card reveal on hover (scaled by spatial factor)
+      const targetCardOpacity = (group.userData.targetCardOpacity || 0.0) * newSmooth;
+      cardMaterial.opacity += (targetCardOpacity - cardMaterial.opacity) * 12 * clampedDelta;
     });
   }
 }

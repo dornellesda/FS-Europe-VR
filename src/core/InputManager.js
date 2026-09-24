@@ -154,7 +154,7 @@ export class InputManager {
     if (this.sceneManager.isInVR) return;
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    
+
     if (this.isPinningMode) {
       const dir = this.raycaster.ray.direction;
       const pitch = Math.asin(dir.y) * (180 / Math.PI);
@@ -166,7 +166,12 @@ export class InputManager {
       return;
     }
 
-    const intersects = this.raycaster.intersectObjects(this.interactiveObjects, true);
+    // Only intersect objects that are currently visible — hidden/culled
+    // hotspots (expired time window or faded out of view) are not clickable.
+    const intersects = this.raycaster.intersectObjects(
+      this.interactiveObjects.filter((o) => o.visible !== false),
+      true
+    );
 
     if (intersects.length > 0) {
       let target = intersects[0].object;
@@ -183,7 +188,10 @@ export class InputManager {
     if (this.sceneManager.isInVR) return;
 
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersects = this.raycaster.intersectObjects(this.interactiveObjects, true);
+    const intersects = this.raycaster.intersectObjects(
+      this.interactiveObjects.filter((o) => o.visible !== false),
+      true
+    );
 
     let newlyHovered = null;
     if (intersects.length > 0) {

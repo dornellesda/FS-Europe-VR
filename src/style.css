@@ -179,6 +179,27 @@ body.in-vr-session #qr-modal-overlay {
   pointer-events: auto;
 }
 
+/* Transient status toasts (buffering + active hotspot cue) — top-center,
+   below the brand bar and away from the player controls. */
+.hud-status-stack {
+  position: absolute;
+  top: 88px;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  z-index: 22;
+  pointer-events: none;
+}
+
+@keyframes status-toast-in {
+  0% { opacity: 0; transform: translateY(-10px) scale(0.95); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .btn-glass {
   background: var(--panel-bg);
   color: var(--text-main);
@@ -463,6 +484,7 @@ body.in-vr-session #qr-modal-overlay {
 
 .media-status-pill.visible {
   display: inline-flex;
+  animation: status-toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .media-status-pill.error {
@@ -519,6 +541,7 @@ body.in-vr-session #qr-modal-overlay {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  max-width: calc(100vw - 96px);
   background: linear-gradient(90deg, rgba(135, 185, 64, 0.15), rgba(162, 209, 88, 0.15));
   border: 1px solid rgba(135, 185, 64, 0.35);
   padding: 6px 16px;
@@ -530,6 +553,7 @@ body.in-vr-session #qr-modal-overlay {
   -webkit-backdrop-filter: blur(16px);
   box-shadow: 0 4px 16px rgba(135, 185, 64, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.1);
   letter-spacing: 0.02em;
+  animation: status-toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cue-dot {
@@ -2111,6 +2135,9 @@ body.in-vr-session #qr-modal-overlay {
   .hud-bottom-bar {
     width: calc(100% - 32px);
     bottom: 84px;
+  }
+  .hud-status-stack {
+    top: 150px;
   }
   #vr-button-element {
     bottom: 16px !important;
