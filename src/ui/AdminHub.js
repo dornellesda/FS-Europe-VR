@@ -1,6 +1,26 @@
 import { tourStore } from '../config/tourStore.js';
 import { supabase } from '../config/supabaseClient.js';
 
+// Hotspot times are stored in seconds but authored/displayed as MM:SS to match
+// the player dock, so "0:18" and "18" both mean 18s and there's no unit drift.
+const formatClock = (seconds) => {
+  const s = Math.max(0, Math.round(Number(seconds) || 0));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  const mm = m < 10 ? `0${m}` : String(m);
+  const ss = r < 10 ? `0${r}` : String(r);
+  return `${mm}:${ss}`;
+};
+
+const parseClock = (str) => {
+  const t = String(str ?? '').trim();
+  if (!t) return 0;
+  if (/^\d+\.?\d*$/.test(t)) return Number(t); // raw seconds
+  const parts = t.split(':').map(Number);
+  if (parts.some((n) => !Number.isFinite(n) || n < 0)) return 0;
+  return parts.reduce((acc, n) => acc * 60 + n, 0);
+};
+
 export class AdminHub {
   constructor(inputManager, videoSphere, onTourChanged) {
     this.inputManager = inputManager;
@@ -241,18 +261,18 @@ export class AdminHub {
               </div>
               <div class="form-group">
                 <label>Duration (Seconds)</label>
-                <input type="number" id="tour-field-duration" value="${activeTour?.duration || 120}" min="10" />
+                <input type="number" id="tour-field-duration" value="${activeTour?.duration || 120}" min="10" step="any" />
               </div>
             </div>
 
             <div class="form-row">
               <div class="form-group">
                 <label>Start POV Yaw (deg)</label>
-                <input type="number" id="tour-field-start-yaw" value="${activeTour?.startPOV?.yaw ?? ''}" step="0.1" placeholder="0 = forward" />
+                <input type="number" id="tour-field-start-yaw" value="${activeTour?.startPOV?.yaw ?? ''}" step="any" placeholder="0 = forward" />
               </div>
               <div class="form-group">
                 <label>Start POV Pitch (deg)</label>
-                <input type="number" id="tour-field-start-pitch" value="${activeTour?.startPOV?.pitch ?? ''}" step="0.1" placeholder="0 = eye level" />
+                <input type="number" id="tour-field-start-pitch" value="${activeTour?.startPOV?.pitch ?? ''}" step="any" placeholder="0 = eye level" />
               </div>
               <div class="form-group">
                 <label>&nbsp;</label>
@@ -434,7 +454,7 @@ export class AdminHub {
                 <div class="admin-list-item" data-hotspot-id="${h.id}">
                   <div class="item-info">
                     <strong>${icon} ${h.title}</strong>
-                    <span class="item-sub">${typeLabel} • ${h.timeStart}s - ${h.timeEnd}s • Yaw: ${h.yaw}°</span>
+                    <span class="item-sub">${typeLabel} • ${formatClock(h.timeStart)} - ${formatClock(h.timeEnd)} • Yaw: ${h.yaw}°</span>
                   </div>
                   <div class="item-actions">
                     <button class="btn-pill-action edit edit-hotspot" data-hotspot-id="${h.id}" title="Edit Hotspot">✏️</button>
@@ -485,20 +505,20 @@ export class AdminHub {
             <!-- Spatial & Timeline Coordinates -->
             <div class="coordinates-grid">
               <div class="form-group">
-                <label>Time Start (sec)</label>
-                <input type="number" id="hs-time-start" value="10" step="0.5" min="0" required />
+                <label>Time Start (MM:SS)</label>
+                <input type="text" id="hs-time-start" inputmode="numeric" placeholder="e.g. 0:18" value="00:10" required />
               </div>
               <div class="form-group">
-                <label>Time End (sec)</label>
-                <input type="number" id="hs-time-end" value="40" step="0.5" min="0" required />
+                <label>Time End (MM:SS)</label>
+                <input type="text" id="hs-time-end" inputmode="numeric" placeholder="e.g. 0:55" value="00:40" required />
               </div>
               <div class="form-group">
                 <label>Yaw (Angle: -180° to 180°)</label>
-                <input type="number" id="hs-yaw" value="0" step="0.1" required />
+                <input type="number" id="hs-yaw" value="0" step="any" required />
               </div>
               <div class="form-group">
                 <label>Pitch (Height: -90° to 90°)</label>
-                <input type="number" id="hs-pitch" value="0" step="0.1" required />
+                <input type="number" id="hs-pitch" value="0" step="any" required />
               </div>
             </div>
 
@@ -612,10 +632,10 @@ export class AdminHub {
 
       document.getElementById('hs-yaw').value = currentYaw;
       document.getElementById('hs-pitch').value = currentPitch;
-      document.getElementById('hs-time-start').value = currentTime;
-      document.getElementById('hs-time-end').value = Math.round((currentTime + 30) * 10) / 10;
+      document.getElementById('hs-time-start').value = formatClock(currentTime);
+      document.getElementById('hs-time-end').value = formatClock(currentTime + 30);
 
-      alert(`Captured camera view: Yaw=${currentYaw}°, Pitch=${currentPitch}°, Time=${currentTime}s`);
+      alert(`Captured camera view: Yaw=${currentYaw}°, Pitch=${currentPitch}°, Time=${formatClock(currentTime)}`);
     });
 
     // "Place Pin on Video" button
@@ -664,8 +684,8 @@ export class AdminHub {
           
           if (yawInput) yawInput.value = yaw;
           if (pitchInput) pitchInput.value = pitch;
-          if (startInput) startInput.value = currentTime;
-          if (endInput) endInput.value = Math.round((currentTime + 30) * 10) / 10;
+          if (startInput) startInput.value = formatClock(currentTime);
+          if (endInput) endInput.value = formatClock(currentTime + 30);
         }, 100);
       };
       
@@ -698,8 +718,8 @@ export class AdminHub {
       const type = typeSelect.value;
       const title = document.getElementById('hs-title').value;
       const subtitle = document.getElementById('hs-subtitle').value;
-      const timeStart = Number(document.getElementById('hs-time-start').value);
-      const timeEnd = Number(document.getElementById('hs-time-end').value);
+      const timeStart = parseClock(document.getElementById('hs-time-start').value);
+      const timeEnd = parseClock(document.getElementById('hs-time-end').value);
       const yaw = Number(document.getElementById('hs-yaw').value);
       const pitch = Number(document.getElementById('hs-pitch').value);
 
@@ -815,8 +835,8 @@ export class AdminHub {
     }
     setVal('hs-title', hs.title);
     setVal('hs-subtitle', hs.subtitle);
-    setVal('hs-time-start', hs.timeStart);
-    setVal('hs-time-end', hs.timeEnd);
+    setVal('hs-time-start', formatClock(hs.timeStart));
+    setVal('hs-time-end', formatClock(hs.timeEnd));
     setVal('hs-yaw', hs.yaw);
     setVal('hs-pitch', hs.pitch);
 

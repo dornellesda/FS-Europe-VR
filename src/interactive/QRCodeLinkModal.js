@@ -215,25 +215,29 @@ export class QRCodeLinkModal {
 
     this.domOverlay.innerHTML = `
       <div class="qr-card">
-        <div class="card-header">
-          <div class="card-badge green">⛶ QR Code Link</div>
-          <button class="close-overlay-btn" id="close-qr-btn">✕ Return to Tour</button>
-        </div>
+        <span class="spot-hairline" aria-hidden="true"></span>
+        <header class="spot-head">
+          <span class="spot-badge">
+            <span class="spot-badge-dot"></span>
+            <span>Digital Catalog Link</span>
+          </span>
+          <button class="spot-close" id="close-qr-btn" title="Return to Tour" aria-label="Close QR link">✕</button>
+        </header>
         <div class="qr-body">
           <div class="qr-canvas-holder" id="qr-holder"></div>
           <div class="qr-info">
-            <h2>${qrData.title}</h2>
-            <p class="qr-desc">${qrData.description}</p>
+            <span class="spot-eyebrow">Scan or tap to open</span>
+            <h2 class="spot-title">${qrData.title}</h2>
+            <p class="spot-desc">${qrData.description}</p>
             <div class="qr-url-box">
-              <code>${qrData.url}</code>
+              <span class="qr-url-ico">🔗</span>
+              <code>${qrData.displayUrl || qrData.url}</code>
             </div>
             <div class="qr-actions">
-              <a href="${qrData.url}" target="_blank" rel="noopener noreferrer" class="btn-primary-green">
-                ↗ Open Website in New Tab
+              <a href="${qrData.url}" target="_blank" rel="noopener noreferrer" class="spot-btn spot-btn-primary">
+                ↗ Open Website
               </a>
-              <button class="btn-secondary" id="copy-qr-url-btn">
-                📋 Copy Link
-              </button>
+              <button class="spot-btn spot-btn-ghost" id="copy-qr-url-btn">📋 Copy Link</button>
             </div>
           </div>
         </div>
@@ -256,7 +260,7 @@ export class QRCodeLinkModal {
     if (copyBtn) {
       copyBtn.onclick = () => {
         navigator.clipboard.writeText(qrData.url);
-        copyBtn.textContent = '✓ Copied to Clipboard!';
+        copyBtn.textContent = '✓ Copied!';
         setTimeout(() => {
           copyBtn.textContent = '📋 Copy Link';
         }, 2500);

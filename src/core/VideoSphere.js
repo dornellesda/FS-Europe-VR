@@ -31,6 +31,10 @@ export class VideoSphere {
     // the WHOLE file and hold playback behind an intro until the front half
     // of the file has fully buffered. State is reset per loadUrl/useProcedural.
     this._prebufferEnabled = false;
+    // URLs that already finished (or were skipped from) the no-pause warm-up
+    // this session. Persists across loadUrl resets so the intro only ever
+    // runs once per video, even when a tour save reloads the same file.
+    this._prebufferedUrls = new Set();
     this._prebufferState = null; // null | 'buffering' | 'done'
     this._prebufferMode = 'seek'; // 'seek' | 'fetch' — how progress is driven
     this._fetchReader = null;
@@ -208,15 +212,20 @@ export class VideoSphere {
     this._startFrameSync();
 
     if (this._pendingPlay) {
-      // Warm the whole file first so the first play through never stalls;
-      // fall through to immediate playback for non-seekable/short sources.
-      if (this._canPrebuffer()) {
+      // This session already warmed (or visited) this exact file — replay
+      // instantly instead of re-running the intro. The browser HTTP cache
+      // still holds the bytes from the earlier prebuffer.
+      if (this._prebufferedUrls.has(this._sourceUrl)) {
+        this._startPlayback();
+      } else if (this._canPrebuffer()) {
+        // Warm the whole file first so the first play through never stalls.
         this._beginPrebuffer();
       } else {
         // Non-seekable source (moov at end → duration=Infinity): can't buffer
         // ahead, so tell the UI why instead of silently starting a stalling
         // video. Short files (<8s) skip the nag — they buffer instantly.
         if (this._sourceUrl && this.hasFirstFrame && !this._prebufferEnabled) {
+          this._prebufferedUrls.add(this._sourceUrl);
           this.emit('prebuffer', {
             state: 'unsupported',
             reason: 'non-seekable',
@@ -402,6 +411,7 @@ export class VideoSphere {
   _finishPrebuffer() {
     if (this._prebufferState !== 'buffering') return;
     this._prebufferState = 'done';
+    this._prebufferedUrls.add(this._sourceUrl);
     this._clearPrebufferTimers();
     this._suppressTime = false;
     try {
@@ -422,6 +432,12 @@ export class VideoSphere {
     if (this._prebufferState === 'buffering') {
       this._finishPrebuffer();
     }
+  }
+
+  // Whether this session already warmed (or visited) the given video URL —
+  // lets UIs skip the "buffering ahead" intro for a repeat visit.
+  isPrebuffered(url) {
+    return this._prebufferedUrls.has(url !== undefined ? url : this._sourceUrl);
   }
 
   _clearPrebufferTimers() {

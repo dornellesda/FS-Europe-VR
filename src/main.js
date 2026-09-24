@@ -281,11 +281,20 @@ class WebXRExhibitApp {
   }
 
   applyTourMedia(tour) {
-    if (tour.videoSrc && tour.videoSrc.trim() !== '') {
-      this.videoSphere.loadUrl(tour.videoSrc);
+    const src = (tour.videoSrc || '').trim();
+    const dur = tour.duration || 120;
+    const mediaKey = src ? `video:${src}` : `procedural:${dur}`;
+    // Hotspot/metadata edits re-enter switchTour with the SAME media — don't
+    // tear down the running video (or re-trigger the prebuffer intro) for
+    // changes that have nothing to do with the media.
+    if (this._lastMediaKey === mediaKey) return;
+    this._lastMediaKey = mediaKey;
+
+    if (src) {
+      this.videoSphere.loadUrl(src);
     } else {
       // Procedural Gallery simulation with timeline duration
-      this.videoSphere.useProcedural(tour.duration || 120);
+      this.videoSphere.useProcedural(dur);
     }
   }
 

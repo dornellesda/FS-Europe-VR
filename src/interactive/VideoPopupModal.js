@@ -137,6 +137,7 @@ export class VideoPopupModal {
         </div>
 
         <div class="modal-info-panel">
+          <span class="spot-eyebrow">Exhibit Video Spotlight</span>
           <h2 class="modal-title" id="video-popup-title">Curator Commentary</h2>
           <p class="modal-desc" id="video-popup-desc">Video details and archive footage.</p>
         </div>

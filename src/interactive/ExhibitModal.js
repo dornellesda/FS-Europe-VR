@@ -420,26 +420,31 @@ export class ExhibitModal {
     let featureButtonsHtml = '';
     (data.features || []).forEach((feat) => {
       featureButtonsHtml += `
-        <button class="modal-feature-btn" data-action="${feat.action}">
-          <span>✦</span> ${feat.label}
+        <button class="spot-feature" data-action="${feat.action}">
+          <span class="spot-feature-ico">✦</span>
+          <span>${feat.label}</span>
         </button>
       `;
     });
 
     this.domOverlay.innerHTML = `
       <div class="exhibit-card">
-        <div class="card-header">
-          <div class="card-badge">${data.category}</div>
-          <button class="close-overlay-btn" id="close-exhibit-btn">✕ Return to Tour</button>
+        <span class="spot-hairline" aria-hidden="true"></span>
+        <header class="spot-head">
+          <span class="spot-badge">
+            <span class="spot-badge-dot"></span>
+            <span>Interactive Exhibit</span>
+          </span>
+          <button class="spot-close" id="close-exhibit-btn" title="Return to Tour" aria-label="Close exhibit">✕</button>
+        </header>
+        <div class="spot-body">
+          <span class="spot-eyebrow">${data.category}</span>
+          <h2 class="spot-title">${data.title}</h2>
+          <p class="spot-desc">${data.description}</p>
         </div>
-        <h2>${data.title}</h2>
-        <p class="card-description">${data.description}</p>
-        <div class="card-instructions">
-          <span>💡 In VR: Touch buttons with your controller laser. On Desktop: Use mouse drag to examine.</span>
-        </div>
-        <div class="feature-buttons-row">
-          ${featureButtonsHtml}
-        </div>
+        <div class="spot-rule" aria-hidden="true"></div>
+        <div class="spot-actions">${featureButtonsHtml || ''}</div>
+        <p class="spot-hint">In VR: hover and pull the trigger. On desktop: click or drag to inspect.</p>
       </div>
     `;
 
@@ -449,7 +454,7 @@ export class ExhibitModal {
     const closeBtn = document.getElementById('close-exhibit-btn');
     if (closeBtn) closeBtn.onclick = () => this.close();
 
-    const buttons = this.domOverlay.querySelectorAll('.modal-feature-btn');
+    const buttons = this.domOverlay.querySelectorAll('.spot-feature');
     buttons.forEach((btn) => {
       btn.onclick = () => {
         const action = btn.getAttribute('data-action');

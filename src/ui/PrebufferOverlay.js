@@ -35,6 +35,10 @@ export class PrebufferOverlay {
     this._normalTitle = this._titleEl?.textContent;
     this._normalSub = this._subEl?.innerHTML;
     this._unsupportedShown = false;
+    // The intro promises to run "once per video" — remember which URLs we've
+    // already covered so a tour edit/save that reloads the same file doesn't
+    // pop the overlay back up.
+    this._seenUrls = new Set();
 
     this._bind();
   }
@@ -96,6 +100,10 @@ export class PrebufferOverlay {
   }
 
   show() {
+    const url = this.videoSphere._sourceUrl || '';
+    if (this._seenUrls.has(url)) return;
+    this._seenUrls.add(url);
+
     this._unsupportedShown = false;
     this.el.classList.remove('pb-warn');
     if (this._percentEl) this._percentEl.textContent = '0%';
