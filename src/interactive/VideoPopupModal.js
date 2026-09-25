@@ -71,6 +71,14 @@ export class VideoPopupModal {
 
     this.isOpen = false;
     this.activeData = null;
+
+    this._activeVideoUrl = null;   // last src fed to the popup <video>
+    this._seekTarget = null;       // timestamp a user seek is heading toward
+    this._jumpChipTimer = null;
+    this._warmAbort = null;        // AbortController for cache warm-ahead
+    this._warmTimer = null;
+    this._warmTotalBytes = 0;      // bytes in the clip (0 = unknown yet)
+    this._warmFromBytes = 0;       // how many bytes are already cached
     this.modalGroup = new THREE.Group();
     this.scene.add(this.modalGroup);
     this.modalGroup.visible = false;
@@ -112,8 +120,14 @@ export class VideoPopupModal {
             ${ICON_PLAY}
           </button>
 
+          <div class="vp-loading" id="vp-loading" role="status" aria-live="polite">
+            <span class="vp-loading-spinner" aria-hidden="true"></span>
+            <span id="vp-loading-label">Buffering…</span>
+          </div>
+
           <div class="vp-controls" id="vp-controls">
             <div class="vp-scrubber" id="vp-scrubber" title="Seek">
+              <div class="vp-scrub-buffer" id="vp-scrub-buffer"></div>
               <div class="vp-scrub-fill" id="vp-scrub-fill"></div>
               <div class="vp-scrub-thumb" id="vp-scrub-thumb"></div>
             </div>
@@ -190,6 +204,54 @@ export class VideoPopupModal {
       return `${m}:${String(sec).padStart(2, '0')}`;
     };
 
+    const bufferEl = document.getElementById('vp-scrub-buffer');
+    const loadingEl = document.getElementById('vp-loading');
+    const loadingLabel = document.getElementById('vp-loading-label');
+    const seekChip = document.getElementById('vp-seek-chip');
+
+    const setLoading = (show, label) => {
+      if (!loadingEl) return;
+      loadingEl.classList.toggle('show', !!show);
+      if (label && loadingLabel) loadingLabel.textContent = label;
+    };
+
+    const hideJumpChip = () => {
+      if (!seekChip) return;
+      seekChip.classList.remove('show');
+      if (this._jumpChipTimer) {
+        clearTimeout(this._jumpChipTimer);
+        this._jumpChipTimer = null;
+      }
+    };
+
+    const showJumpChip = (target) => {
+      if (!seekChip) return;
+      seekChip.textContent = `⏳ Jumping to ${fmt(target)}…`;
+      seekChip.classList.add('show');
+      clearTimeout(this._jumpChipTimer);
+      this._jumpChipTimer = setTimeout(hideJumpChip, 2500);
+    };
+
+    const showDragChip = (target) => {
+      if (!seekChip) return;
+      seekChip.textContent = `⏩ ${fmt(target)}`;
+      seekChip.classList.add('show');
+    };
+
+    // Merge what the <video> element buffered with what our background cache
+    // warm-ahead has pulled — shows "how far ahead I can safely skip".
+    this._updateBufferBar = () => {
+      if (!bufferEl) return;
+      const dur = v.duration;
+      if (!isFinite(dur) || dur <= 0) return;
+      let videoEnd = 0;
+      try {
+        for (let i = 0; i < v.buffered.length; i++) videoEnd = Math.max(videoEnd, v.buffered.end(i));
+      } catch {}
+      const warm = this._warmTotalBytes ? dur * Math.min(1, this._warmFromBytes / this._warmTotalBytes) : 0;
+      bufferEl.style.width = `${Math.min(100, (Math.max(videoEnd, warm) / dur) * 100)}%`;
+    };
+
     const syncMuteIcon = () => {
       muteBtn.innerHTML = v.muted || v.volume === 0 ? ICON_VOL_MUTE : ICON_VOL_HIGH;
     };
@@ -206,24 +268,17 @@ export class VideoPopupModal {
     playBtn.addEventListener('click', togglePlay);
     v.addEventListener('click', togglePlay);
 
-    const showSeekChip = (delta) => {
-      const chip = document.getElementById('vp-seek-chip');
-      if (!chip) return;
-      chip.textContent = delta < 0 ? `⏪ −${Math.abs(delta)}s` : `⏩ +${delta}s`;
-      chip.classList.add('show');
-      clearTimeout(this._seekChipTimer);
-      this._seekChipTimer = setTimeout(() => {
-        chip.classList.remove('show');
-      }, 800);
-    };
-
     rewindBtn.addEventListener('click', () => {
-      showSeekChip(-10);
-      v.currentTime = Math.max(0, v.currentTime - 10);
+      const target = Math.max(0, v.currentTime - 10);
+      this._seekTarget = target;
+      v.currentTime = target;
+      showJumpChip(target);
     });
     forwardBtn.addEventListener('click', () => {
-      showSeekChip(10);
-      v.currentTime = Math.min(v.duration || 0, v.currentTime + 10);
+      const target = Math.min(v.duration || 0, v.currentTime + 10);
+      this._seekTarget = target;
+      v.currentTime = target;
+      showJumpChip(target);
     });
 
     v.addEventListener('play', () => {
@@ -256,26 +311,53 @@ export class VideoPopupModal {
       thumb.style.left = `${pct}%`;
       curEl.textContent = fmt(v.currentTime);
     });
+    v.addEventListener('progress', () => this._updateBufferBar?.());
     v.addEventListener('volumechange', syncMuteIcon);
 
-    // Scrubber (click + drag)
-    const seekFromEvent = (e) => {
+    // Tell the user the player is reacting: the seek chip stays up ("Jumping")
+    // until the jump actually lands, and a spinner appears when the video has
+    // to wait for data instead of freezing silently on a still frame.
+    v.addEventListener('seeking', () => {
+      if (this._seekTarget != null) showJumpChip(this._seekTarget);
+    });
+    v.addEventListener('seeked', () => {
+      this._seekTarget = null;
+      hideJumpChip();
+    });
+    v.addEventListener('loadstart', () => setLoading(true, 'Loading video…'));
+    v.addEventListener('canplay', () => setLoading(false));
+    v.addEventListener('canplaythrough', () => setLoading(false));
+    v.addEventListener('waiting', () => setLoading(true, 'Buffering this section…'));
+    v.addEventListener('stalled', () => setLoading(true, 'Waited for data…'));
+    v.addEventListener('playing', () => setLoading(false));
+
+    // Scrubber (click + drag) with live target feedback
+    const dragTarget = (e) => {
       const rect = scrubber.getBoundingClientRect();
       const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-      if (v.duration) v.currentTime = ratio * v.duration;
+      return v.duration ? ratio * v.duration : 0;
     };
     scrubber.addEventListener('pointerdown', (e) => {
       scrubber.classList.add('scrubbing');
       scrubber.setPointerCapture(e.pointerId);
-      seekFromEvent(e);
+      const target = dragTarget(e);
+      this._seekTarget = target;
+      showDragChip(target);
+      if (v.duration) v.currentTime = target;
       e.preventDefault();
     });
     scrubber.addEventListener('pointermove', (e) => {
-      if (scrubber.classList.contains('scrubbing')) seekFromEvent(e);
+      if (!scrubber.classList.contains('scrubbing')) return;
+      const target = dragTarget(e);
+      this._seekTarget = target;
+      showDragChip(target);
+      if (v.duration) v.currentTime = target;
     });
     scrubber.addEventListener('pointerup', (e) => {
       scrubber.classList.remove('scrubbing');
       scrubber.releasePointerCapture?.(e.pointerId);
+      // Keep "Jumping to X:XX…" visible until seeked (or the 2.5s fallback).
+      if (this._seekTarget != null) showJumpChip(this._seekTarget);
     });
     scrubber.addEventListener('pointercancel', () => {
       scrubber.classList.remove('scrubbing');
@@ -319,17 +401,171 @@ export class VideoPopupModal {
     }, 2600);
   }
 
+  /**
+   * Pull the rest of the clip through the browser/CDN cache while it plays, so
+   * seeking ahead never waits on a fresh download. Works with Cloudflare: the
+   * range requests are partial-content GETs the edge already caches, and the
+   * browser reuses warmed bytes on later seeks. Best effort — aborts silently
+   * on CORS/network errors.
+   */
+  _startWarmAhead() {
+    if (typeof fetch !== 'function') return;
+    if (this._warmAbort || this._warmTimer) this._stopWarmAhead();
+    const url = this._activeVideoUrl;
+    if (!url || url.startsWith('blob:')) return;
+    if (detectEmbed(url)) return; // embeds manage their own buffering
+
+    this._warmAbort = new AbortController();
+    this._warmFromBytes = 0;
+    this._warmTotalBytes = 0;
+    const cancelled = () => !this._warmAbort || this._warmAbort.signal.aborted;
+
+    // Probe for the total size with a 1-byte range. Servers/CDNs that ignore
+    // Range fall back to streaming the whole response through the cache.
+    fetch(url, {
+      headers: { Range: 'bytes=0-0' },
+      cache: 'force-cache',
+      signal: this._warmAbort.signal
+    })
+      .then((res) => {
+        if (cancelled()) return this._stopWarmAhead();
+        const match = (res.headers.get('Content-Range') || '').match(/bytes\s+0-0\/(\d+)/);
+        const total = match ? parseInt(match[1], 10) : 0;
+        if (total > 0) {
+          this._warmTotalBytes = total;
+          this._warmTick();
+        } else {
+          this._warmWholeFile();
+        }
+      })
+      .catch(() => {
+        if (!cancelled()) this._warmWholeFile();
+      });
+  }
+
+  async _warmTick() {
+    if (!this._warmAbort || this._warmAbort.signal.aborted) return;
+    if (!this.isOpen) return this._stopWarmAhead();
+
+    const v = this.domVideo;
+    const url = this._activeVideoUrl;
+    const total = this._warmTotalBytes;
+    const cancelled = () => !this._warmAbort || this._warmAbort.signal.aborted;
+    if (!v || !url || !total) return;
+
+    // Resume just past what the element already buffered, so this warms the
+    // part a user might skip to instead of duplicating the front fill.
+    let bufferedByteEnd = 0;
+    try {
+      if (isFinite(v.duration) && v.duration > 0) {
+        let end = 0;
+        for (let i = 0; i < v.buffered.length; i++) end = Math.max(end, v.buffered.end(i));
+        bufferedByteEnd = Math.floor(total * (end / v.duration));
+      }
+    } catch {}
+
+    const startByte = Math.max(this._warmFromBytes, bufferedByteEnd);
+    if (startByte >= total) return this._stopWarmAhead();
+
+    const want = 4 * 1024 * 1024;
+    const res = await fetch(url, {
+      headers: { Range: `bytes=${startByte}-${Math.min(total - 1, startByte + want - 1)}` },
+      cache: 'force-cache',
+      signal: this._warmAbort.signal
+    }).catch(() => null);
+    if (!res || cancelled()) return this._stopWarmAhead();
+
+    let endByte = startByte;
+    const rangeMatch = (res.headers.get('Content-Range') || '').match(/bytes\s+(\d+)-(\d+)\/(\d+)/);
+    if (rangeMatch) endByte = parseInt(rangeMatch[2], 10);
+
+    // Read (and discard) the chunk body so the bytes land in the HTTP/CDN
+    // cache without being held in JS memory.
+    const reader = res.body ? res.body.getReader() : null;
+    if (reader) {
+      for (;;) {
+        if (cancelled()) {
+          try { reader.cancel(); } catch {}
+          return this._stopWarmAhead();
+        }
+        const { done } = await reader.read();
+        if (done) break;
+      }
+    }
+
+    this._warmFromBytes = Math.max(this._warmFromBytes, endByte + 1);
+    this._updateBufferBar?.();
+    if (this._warmFromBytes >= total) return this._stopWarmAhead();
+
+    if (!cancelled()) {
+      this._warmTimer = setTimeout(() => this._warmTick(), 120);
+    }
+  }
+
+  // No Range support: stream the whole response through the HTTP cache (the
+  // same trick the main tour prebuffer uses) so any seek lands instantly.
+  async _warmWholeFile() {
+    const url = this._activeVideoUrl;
+    if (!url || !this._warmAbort || this._warmAbort.signal.aborted) return;
+    const cancelled = () => !this._warmAbort || this._warmAbort.signal.aborted;
+    try {
+      const res = await fetch(url, {
+        cache: 'force-cache',
+        signal: this._warmAbort.signal
+      });
+      if (!res.ok || !res.body || cancelled()) return this._stopWarmAhead();
+      this._warmTotalBytes = parseInt(res.headers.get('Content-Length') || '0', 10);
+      const reader = res.body.getReader();
+      let got = 0;
+      for (;;) {
+        if (cancelled()) {
+          try { reader.cancel(); } catch {}
+          return this._stopWarmAhead();
+        }
+        const { done, value } = await reader.read();
+        if (done) break;
+        got += value ? value.length : 0;
+        this._warmFromBytes = got;
+        // Throttle bar updates to ~every 4 MB.
+        if (got % (4 * 1024 * 1024) < (value ? value.length : 0)) this._updateBufferBar?.();
+      }
+      this._updateBufferBar?.();
+      this._stopWarmAhead();
+    } catch {
+      this._stopWarmAhead();
+    }
+  }
+
+  _stopWarmAhead() {
+    if (this._warmTimer) {
+      clearTimeout(this._warmTimer);
+      this._warmTimer = null;
+    }
+    if (this._warmAbort) {
+      this._warmAbort.abort();
+      this._warmAbort = null;
+    }
+    this._warmTotalBytes = 0;
+    this._warmFromBytes = 0;
+  }
+
   resetPlayerUI() {
     if (this._hideTimer) {
       clearTimeout(this._hideTimer);
       this._hideTimer = null;
     }
-    if (this._seekChipTimer) {
-      clearTimeout(this._seekChipTimer);
-      this._seekChipTimer = null;
+    if (this._jumpChipTimer) {
+      clearTimeout(this._jumpChipTimer);
+      this._jumpChipTimer = null;
     }
+    this._stopWarmAhead();
+    this._seekTarget = null;
     const chip = document.getElementById('vp-seek-chip');
     if (chip) chip.classList.remove('show');
+    const loadingEl = document.getElementById('vp-loading');
+    if (loadingEl) loadingEl.classList.remove('show');
+    const bufferEl = document.getElementById('vp-scrub-buffer');
+    if (bufferEl) bufferEl.style.width = '0%';
     // Leave embed mode: drop the iframe back to the <video> player.
     const embedFrame = document.getElementById('dom-popup-embed');
     if (embedFrame) embedFrame.removeAttribute('src');
@@ -580,6 +816,8 @@ export class VideoPopupModal {
         this.domVideo.removeAttribute('src');
         this.domVideo.load();
       }
+      this._activeVideoUrl = null;
+      this._stopWarmAhead();
       const frame = document.getElementById('dom-popup-embed');
       if (frame) {
         const title = videoData.title || this.activeData.title || 'Embedded video';
@@ -589,11 +827,20 @@ export class VideoPopupModal {
       const container = document.getElementById('video-player-container');
       if (container) container.classList.add('embed-mode');
     } else if (this.domVideo) {
-      this.domVideo.src = videoData.sourceUrl || '';
-      this.domVideo.load();
+      const src = videoData.sourceUrl || '';
+      // Reuse the element's src when it's the same clip: the buffered/CDN
+      // bytes survive between opens, so replay starts instantly and early
+      // seeks don't re-download fresh ranges.
+      if (src && src !== this._activeVideoUrl) {
+        this._activeVideoUrl = src;
+        this.domVideo.src = src;
+        this.domVideo.load();
+      }
+      this.domVideo.currentTime = 0;
       this.domVideo.play().catch(() => {
         // Autoplay blocked — the big play button stays visible
       });
+      this._startWarmAhead();
     }
 
     this.domOverlay.classList.add('active');
@@ -635,8 +882,14 @@ export class VideoPopupModal {
 
     if (this.domVideo) {
       this.domVideo.pause();
-      this.domVideo.src = '';
+      // Keep the src + buffered data so reopening the same hotspot replays
+      // from the browser/CDN cache instead of re-downloading.
     }
+    this._stopWarmAhead();
+    const loadingEl = document.getElementById('vp-loading');
+    if (loadingEl) loadingEl.classList.remove('show');
+    const chipEl = document.getElementById('vp-seek-chip');
+    if (chipEl) chipEl.classList.remove('show');
     const embedFrame = document.getElementById('dom-popup-embed');
     if (embedFrame) embedFrame.removeAttribute('src');
     const playerContainer = document.getElementById('video-player-container');

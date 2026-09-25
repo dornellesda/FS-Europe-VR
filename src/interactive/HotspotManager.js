@@ -80,7 +80,7 @@ export class HotspotManager {
       default:
         return {
           iconType: 'qr',
-          badgeText: 'DIGITAL CATALOG',
+          badgeText: 'LIVE EXPERIENCE',
           actionText: 'Tap to Open Web Link & QR',
           accent: '#34d399',
           accentRgb: '52, 211, 153'
